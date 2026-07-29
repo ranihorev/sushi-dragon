@@ -1,98 +1,74 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { Link } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Cat } from '@/components/Cat';
+import { Dragon } from '@/components/Dragon';
+import { CREAM, LANTERN, NIGHT, WOOD, WOOD_DARK } from '@/theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+/**
+ * Two doors.
+ *
+ * The letter game and the word game are different enough that he should be
+ * choosing between them rather than finding one buried inside the other — and
+ * at this age choosing is most of the motivation. No reading is required to
+ * use this screen: the animal is the label.
+ */
+export default function TitleScreen() {
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.doors}>
+        <Link href="/cat/play" asChild>
+          <Pressable style={styles.door} accessibilityRole="button" accessibilityLabel="the cat">
+            <Cat fullness={0} mood="happy" size={210} />
+            <View style={styles.counter} />
+            <Text style={styles.name}>letters</Text>
+          </Pressable>
+        </Link>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+        <Link href="/dragon/play" asChild>
+          <Pressable style={styles.door} accessibilityRole="button" accessibilityLabel="the dragon">
+            <Dragon fullness={0} mood="happy" size={210} />
+            <View style={styles.counter} />
+            <Text style={styles.name}>words</Text>
+          </Pressable>
+        </Link>
+      </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      <Link href="/dragon/parent" asChild>
+        <Pressable
+          style={styles.parent}
+          accessibilityRole="button"
+          accessibilityLabel="grown-ups"
+          hitSlop={12}
+        >
+          <Text style={styles.parentText}>grown-ups</Text>
+        </Pressable>
+      </Link>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+  screen: { flex: 1, backgroundColor: NIGHT, alignItems: 'center', justifyContent: 'center' },
+  doors: { flexDirection: 'row', gap: 40, alignItems: 'flex-end' },
+  door: { alignItems: 'center' },
+  counter: {
+    width: 250,
+    height: 14,
+    marginTop: -22,
+    borderRadius: 5,
+    backgroundColor: WOOD,
+    borderBottomWidth: 5,
+    borderBottomColor: WOOD_DARK,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+  name: {
+    color: CREAM,
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: 16,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+  parent: { position: 'absolute', right: 22, bottom: 16, padding: 8 },
+  parentText: { color: LANTERN, opacity: 0.55, fontSize: 13 },
 });

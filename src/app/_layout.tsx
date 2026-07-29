@@ -1,18 +1,30 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { fileStore } from '@/file-store';
+import { useStore } from '@/persist';
+import { NIGHT } from '@/theme';
 
-SplashScreen.preventAutoHideAsync();
+/* Both games keep their progress as JSON behind a swappable store — tests get
+   an in-memory one, and the app points it at the documents directory here, on
+   the way in. Documents are what the iPad's iCloud backup includes, so this
+   one line is the whole reason a lost iPad costs nothing. */
+useStore(fileStore());
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    /* Gesture handler wraps everything, because carrying a piece of sushi up
+       to the dragon is very nearly the only control the game has. */
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: NIGHT }}>
+      <StatusBar hidden />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: 'fade',
+          contentStyle: { backgroundColor: NIGHT },
+        }}
+      />
+    </GestureHandlerRootView>
   );
 }

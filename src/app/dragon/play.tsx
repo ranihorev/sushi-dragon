@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -40,6 +40,11 @@ export default function PlayScreen() {
   );
   const [at, setAt] = useState(0);
   const round = meal[at];
+
+  /** whether any word has been recorded — without one the dragon cannot answer */
+  const [voiced, setVoiced] = useState(() =>
+    store.loadDictionary().some((w) => store.hasVoice(w.text)),
+  );
 
   const [mood, setMood] = useState<Mood>('idle');
   const [searing, setSearing] = useState(false);
@@ -205,6 +210,33 @@ export default function PlayScreen() {
 
   if (!round) return null;
 
+  /* A dragon with nothing to say.
+
+     Until a word has been recorded there is no voice to confirm anything with,
+     so he would read a word, feed it, and get silence back — and that moment
+     is supposed to be the reward for having committed to an answer. Better to
+     say so plainly than to let his first go be the broken one. */
+  if (!voiced) {
+    return (
+      <SafeAreaView style={[styles.screen, styles.empty]}>
+        <Dragon mood="idle" size={200} />
+        <Text style={styles.emptyTitle}>The dragon can&apos;t speak yet</Text>
+        <Text style={styles.emptyBody}>
+          Record a few words in your own voice and it can say them back to him. Three of them takes
+          about a minute.
+        </Text>
+        <Link href="/dragon/add-word" asChild>
+          <Pressable style={styles.emptyButton} accessibilityRole="button">
+            <Text style={styles.emptyButtonText}>Record a word</Text>
+          </Pressable>
+        </Link>
+        <Pressable onPress={() => setVoiced(true)} accessibilityRole="button" hitSlop={14}>
+          <Text style={styles.emptySkip}>play without it</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
+
   const fullness = at / Math.max(meal.length, 1);
   const counter = piecesFor(round, eaten, plate);
 
@@ -366,6 +398,25 @@ function playable(meal: Round[]): Round[] {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: NIGHT },
+  empty: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  emptyTitle: { color: CREAM, fontSize: 24, fontWeight: '800' },
+  emptyBody: {
+    color: CREAM,
+    opacity: 0.6,
+    fontSize: 15,
+    textAlign: 'center',
+    maxWidth: 420,
+    lineHeight: 21,
+  },
+  emptyButton: {
+    marginTop: 12,
+    backgroundColor: LANTERN,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  emptyButtonText: { color: NIGHT, fontWeight: '800', fontSize: 16 },
+  emptySkip: { color: CREAM, opacity: 0.4, fontSize: 13, marginTop: 6 },
   dragonRow: { alignItems: 'center', paddingTop: 4 },
   plate: { alignItems: 'center', minHeight: 78, justifyContent: 'center' },
   plateHint: { color: CREAM, opacity: 0.25, fontSize: 34, letterSpacing: 6 },

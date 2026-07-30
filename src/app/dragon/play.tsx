@@ -249,6 +249,7 @@ export default function PlayScreen() {
               {slices.map((_, slot) => (
                 <View
                   key={slot}
+                  testID={plate[slot] === undefined ? 'slot-empty' : 'slot-full'}
                   style={[styles.slot, plate[slot] !== undefined && styles.slotFull]}
                 >
                   {plate[slot] !== undefined && (

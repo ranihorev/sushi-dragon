@@ -1,13 +1,62 @@
+import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-/* The game's thinking — how a word is cut up, which words rhyme with it, how
-   sure we are that he can read it — is plain TypeScript with no React Native
-   in it anywhere. That is deliberate: it means the part that is hard to get
-   right can be tested in milliseconds, without a simulator. */
+const at = (p: string) => resolve(__dirname, p);
+
+/**
+ * Two suites, because there are two kinds of thing to be wrong about.
+ *
+ * `core` is the game's thinking — how a word is cut up, which words rhyme with
+ * it, how sure we are that he can read it. It is plain TypeScript with no
+ * React Native in it anywhere, which is deliberate: the part that is hard to
+ * get right can be tested in milliseconds, without a simulator.
+ *
+ * `screens` is the part that turned out to be wrong in practice. Every fault
+ * in the first build he tried was in the wiring — a drop zone that measured
+ * finger travel instead of position, a tap that did nothing, no way out of a
+ * game. None of that is reachable from the core suite, so the components are
+ * rendered here against React Native for Web, with the touch layer replaced by
+ * a recorder a test can drive by hand.
+ *
+ * What this cannot see: whether anything is legible on a screen. A hint drawn
+ * as a shadow on a transparent view passes every assertion here and draws
+ * nothing at all on an iPad. That still needs eyes.
+ */
 export default defineConfig({
   test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
-    restoreMocks: true,
+    projects: [
+      {
+        test: {
+          name: 'core',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+          restoreMocks: true,
+        },
+      },
+      {
+        plugins: [react()],
+        resolve: {
+          alias: [
+            { find: /^@\//, replacement: `${at('src')}/` },
+            { find: 'react-native-gesture-handler', replacement: at('test/stubs/gesture-handler.tsx') },
+            { find: 'react-native-reanimated', replacement: at('test/stubs/reanimated.tsx') },
+            { find: 'react-native-safe-area-context', replacement: at('test/stubs/safe-area.tsx') },
+            { find: /^react-native-svg$/, replacement: at('test/stubs/svg.tsx') },
+            { find: 'expo-router', replacement: at('test/stubs/expo-router.tsx') },
+            { find: 'expo-haptics', replacement: at('test/stubs/expo-haptics.ts') },
+            // last, because it is a prefix of most of the entries above it
+            { find: /^react-native$/, replacement: 'react-native-web' },
+          ],
+        },
+        test: {
+          name: 'screens',
+          environment: 'jsdom',
+          include: ['src/**/*.test.tsx'],
+          setupFiles: [at('test/setup.ts')],
+          restoreMocks: true,
+        },
+      },
+    ],
   },
 });

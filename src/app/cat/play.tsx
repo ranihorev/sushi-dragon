@@ -274,7 +274,10 @@ export default function CatPlayScreen() {
             >
               {/* on a second miss the right piece is ringed, so the ring does
                   the pointing — a shadow on a transparent view draws nothing */}
-              <View style={hint === letter ? styles.glow : undefined}>
+              <View
+                testID={hint === letter ? `ringed-${letter}` : `piece-${letter}`}
+                style={hint === letter ? styles.glow : undefined}
+              >
                 <Sushi
                   chunks={[letter]}
                   scale={round.options.length > 3 ? 0.85 : 1.05}

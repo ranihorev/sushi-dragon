@@ -41,13 +41,16 @@
   },
   "scripts": {
     "start": "expo start",
-    "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ship:ios": "eas build --platform ios --profile production --non-interactive --auto-submit-with-profile production",
+    "ship:beta": "eas build --platform ios --profile beta --non-interactive --auto-submit-with-profile production",
+    "ship:update": "eas update --branch production --environment production --auto",
+    "ship:ipad": "eas build --platform ios --profile preview"
   },
   "private": true
 }

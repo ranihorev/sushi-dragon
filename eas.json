@@ -11,20 +11,27 @@
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview",
-      "ios": {
-        "simulator": false
-      }
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production"
+    },
+    "beta": {
+      "extends": "production",
+      "env": {
+        "EXPO_PUBLIC_SHOW_UPDATE_BANNER": "1"
+      },
       "channel": "production"
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleTeamId": "Q6S85K68D5"
+        "appleTeamId": "Q6S85K68D5",
+        "ascApiKeyPath": "/Users/ranihorev/Documents/Code/AuthKey_63597Q5V4W.p8",
+        "ascApiKeyId": "63597Q5V4W",
+        "ascApiKeyIssuerId": "832c7a95-015d-4194-8b8f-06a971830915"
       }
     }
   }

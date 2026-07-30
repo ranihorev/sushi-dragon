@@ -1,16 +1,11 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Carry } from '@/components/Carry';
 import { Cat, type Mood } from '@/components/Cat';
+import { HomeButton } from '@/components/HomeButton';
 import { Sushi } from '@/components/Sushi';
 import * as audio from '@/cat/audio';
 import { demote, nextRound, promote } from '@/cat/engine';
@@ -56,6 +51,8 @@ export default function CatPlayScreen() {
   const [locked, setLocked] = useState(true);
   const [look, setLook] = useState(0);
   const [heard, setHeard] = useState(0);
+  /** bottom of the cat on screen — everything above it is the drop zone */
+  const [dropLine, setDropLine] = useState(320);
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -227,18 +224,20 @@ export default function CatPlayScreen() {
   const fullness = eaten.length / total;
   const wordHint = round.kind === 'word' ? LETTERS[round.target].word : null;
 
+  const onCatLayout = (e: LayoutChangeEvent) => {
+    const { y, height } = e.nativeEvent.layout;
+    // let go anywhere above the cat's chin and it counts
+    setDropLine(y + height * 0.92);
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
-      {/* parent escape hatch — a long press on the corner, invisible to him */}
-      <Pressable
-        style={styles.exit}
-        onLongPress={() => router.replace('/')}
-        delayLongPress={900}
-        accessibilityLabel="exit"
-      />
+      <HomeButton />
 
       <View style={styles.room}>
-        <Cat fullness={fullness} mood={mood} look={look} size={320} />
+        <View onLayout={onCatLayout}>
+          <Cat fullness={fullness} mood={mood} look={look} size={320} />
+        </View>
 
         {/* how much of the meal is gone */}
         <View style={styles.plate}>
@@ -265,11 +264,20 @@ export default function CatPlayScreen() {
         {round.options
           .filter((l) => l !== swallowed)
           .map((letter) => (
-            <Carry key={`${round.target}-${letter}`} enabled={!locked} onFeed={() => pick(letter)}>
+            <Carry
+              key={`${round.target}-${letter}`}
+              enabled={!locked}
+              onFeed={() => pick(letter)}
+              onTap={() => replayPrompt(round)}
+              dropAboveY={dropLine}
+              onOverChange={(over) => !locked && setMood(over ? 'anticipate' : 'idle')}
+            >
+              {/* on a second miss the right piece is ringed, so the ring does
+                  the pointing — a shadow on a transparent view draws nothing */}
               <View style={hint === letter ? styles.glow : undefined}>
                 <Sushi
                   chunks={[letter]}
-                  scale={round.options.length > 3 ? 0.72 : 0.92}
+                  scale={round.options.length > 3 ? 0.85 : 1.05}
                   showSeams={false}
                 />
               </View>
@@ -288,47 +296,6 @@ export default function CatPlayScreen() {
   );
 }
 
-/**
- * Carrying a piece up to the cat.
- *
- * Feeding is a drag rather than a tap: carrying the piece is a more deliberate
- * act, so it makes him commit to a choice instead of batting at whatever is
- * nearest. A tap alone answers nothing.
- */
-function Carry({
-  children,
-  enabled,
-  onFeed,
-}: {
-  children: React.ReactNode;
-  enabled: boolean;
-  onFeed: () => void;
-}) {
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
-
-  const pan = Gesture.Pan()
-    .enabled(enabled)
-    .onUpdate((e) => {
-      x.value = e.translationX;
-      y.value = e.translationY;
-    })
-    .onEnd((e) => {
-      if (e.translationY < -80) runOnJS(onFeed)();
-      x.value = withSpring(0);
-      y.value = withSpring(0);
-    });
-
-  const style = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }],
-  }));
-
-  return (
-    <GestureDetector gesture={pan}>
-      <Animated.View style={style}>{children}</Animated.View>
-    </GestureDetector>
-  );
-}
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: NIGHT },
@@ -371,13 +338,14 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 16,
   },
-  // the right piece starts glowing on a second miss; the glow does the pointing
+  /* The right piece is ringed on a second miss. This used to be a shadow,
+     which iOS declines to draw on a view with no background — so the hint that
+     was supposed to rescue him after two wrong answers did nothing at all. */
   glow: {
-    borderRadius: 18,
-    shadowColor: LANTERN,
-    shadowOpacity: 0.9,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
+    borderRadius: 20,
+    borderWidth: 5,
+    borderColor: LANTERN,
+    padding: 3,
   },
   counter: { height: 16, backgroundColor: WOOD, borderTopWidth: 4, borderTopColor: WOOD_DARK },
   dots: { position: 'absolute', right: 10, bottom: 6, flexDirection: 'row', gap: 4, opacity: 0.25 },

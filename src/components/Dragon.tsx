@@ -17,8 +17,8 @@ interface Props {
  * The dragon, drawn from the side behind its counter.
  *
  * Everything it does is driven by `mood` and `fullness` alone, so the rest of
- * the game never has to know how it is put together — the same arrangement
- * that made the cat easy to redraw without touching anything else.
+ * the game never has to know how it is put together, and it can be redrawn
+ * without touching anything else.
  */
 export function Dragon({ mood = 'idle', fullness = 0, breathing = false, size = 260 }: Props) {
   const happy = mood === 'happy';

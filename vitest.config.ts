@@ -30,7 +30,7 @@ export default defineConfig({
         test: {
           name: 'core',
           environment: 'node',
-          include: ['src/**/*.test.ts'],
+          include: ['src/**/*.test.ts', 'test/*.test.ts'],
           restoreMocks: true,
         },
       },
@@ -52,7 +52,12 @@ export default defineConfig({
         test: {
           name: 'screens',
           environment: 'jsdom',
-          include: ['src/**/*.test.tsx'],
+          /* Screen tests live under `test/`, not beside the screen they cover.
+             Expo Router turns every file under `src/app` into a route, so a
+             colocated `play.test.tsx` is a route that imports vitest — which
+             drags vite into the app bundle and breaks the build. Components
+             outside `src/app` are safe to colocate, and are. */
+          include: ['src/**/*.test.tsx', 'test/screens/**/*.test.tsx'],
           setupFiles: [at('test/setup.ts')],
           restoreMocks: true,
         },

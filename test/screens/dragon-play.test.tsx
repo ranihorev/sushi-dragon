@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { pan } from '../../../test/stubs/gesture-handler';
+import { pan } from '../stubs/gesture-handler';
 import { blankProfile, type DragonProfile, type WordStat } from '@/game/progress';
 import { makeWord } from '@/game/words';
 
@@ -31,7 +31,7 @@ vi.mock('@/game/audio', () => ({
   sound: (source: string) => ({ play: source }),
 }));
 
-const { default: PlayScreen } = await import('./play');
+const { default: PlayScreen } = await import('@/app/dragon/play');
 
 const stat = (over: Partial<WordStat> = {}): WordStat => ({
   seen: 1,

@@ -4,15 +4,7 @@ import * as Updates from 'expo-updates';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { fileStore } from '@/file-store';
-import { useStore } from '@/persist';
 import { NIGHT } from '@/theme';
-
-/* Both games keep their progress as JSON behind a swappable store — tests get
-   an in-memory one, and the app points it at the documents directory here, on
-   the way in. Documents are what the iPad's iCloud backup includes, so this
-   one line is the whole reason a lost iPad costs nothing. */
-useStore(fileStore());
 
 export default function RootLayout() {
   /* Take an update at launch rather than the launch after.

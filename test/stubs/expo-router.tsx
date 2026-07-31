@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, type ReactNode } from 'react';
 import { Pressable, Text } from 'react-native';
 import { vi } from 'vitest';
 
@@ -13,7 +13,29 @@ export const router = {
 export const useRouter = () => router;
 export const usePathname = () => '/';
 export const useLocalSearchParams = () => ({});
-export const useFocusEffect = () => {};
+/**
+ * Focus, as far as a test is concerned.
+ *
+ * The real hook runs its callback every time the screen comes back to the
+ * front. A screen that only reads the word list once, at startup, is a real
+ * bug — the dragon kept saying it could not speak after three words had been
+ * recorded — so the stub keeps the callbacks and `refocus()` runs them again,
+ * which is what coming back from the grown-ups' side looks like from here.
+ */
+const focusing: Array<() => void> = [];
+
+export const useFocusEffect = (callback: () => void) => {
+  useEffect(() => {
+    focusing.push(callback);
+    callback();
+    return () => {
+      const at = focusing.indexOf(callback);
+      if (at >= 0) focusing.splice(at, 1);
+    };
+  }, [callback]);
+};
+
+export const refocus = () => focusing.forEach((callback) => callback());
 
 export function Link({
   href,

@@ -1,7 +1,6 @@
 import {
   AudioModule,
   RecordingPresets,
-  createAudioPlayer,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
@@ -21,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SeamEditor } from '@/components/SeamEditor';
 import { Sushi } from '@/components/Sushi';
+import { hearOnce } from '@/game/playback';
 import * as store from '@/game/storage';
 import { family, makeWord, reseam, type Word } from '@/game/words';
 import { relatives } from '@/game/families';
@@ -44,6 +44,7 @@ export default function AddWordScreen() {
   const [withFamily, setWithFamily] = useState(true);
   const [take, setTake] = useState<string | null>(null);
   const [granted, setGranted] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const state = useAudioRecorderState(recorder);
@@ -76,11 +77,11 @@ export default function AddWordScreen() {
     if (recorder.uri) setTake(recorder.uri);
   };
 
+  /* The button says which of the two things it is doing, and will not start a
+     second player on top of the first. See `hearOnce`. */
   const hear = () => {
-    if (!take) return;
-    const player = createAudioPlayer({ uri: take });
-    player.play();
-    setTimeout(() => player.remove(), 4000);
+    if (!take || playing) return;
+    hearOnce(take, setPlaying);
   };
 
   const save = () => {
@@ -110,7 +111,22 @@ export default function AddWordScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>The word he got stuck on</Text>
+        {/* There was no way off this screen but saving a word, which is a
+            trap if you opened it to see what it was. */}
+        <Pressable onPress={() => router.back()} hitSlop={16} accessibilityRole="button">
+          <Text style={styles.back}>‹ back</Text>
+        </Pressable>
+
+        {/* Said up front because the way in is a button about recording and
+            the first thing that happens is a keyboard, which reads as the
+            wrong screen until you know the recording is step three. */}
+        <Text style={styles.title}>Add a word</Text>
+        <Text style={styles.blurb}>
+          Type it, check where it gets cut, then hold a button and say it out loud. About twenty
+          seconds.
+        </Text>
+
+        <Text style={styles.label}>1 · The word he got stuck on</Text>
         <TextInput
           style={styles.input}
           value={text}
@@ -124,7 +140,7 @@ export default function AddWordScreen() {
 
         {word.text.length > 1 && (
           <>
-            <Text style={styles.label}>How it gets cut up — tap to move a seam</Text>
+            <Text style={styles.label}>2 · How it gets cut up — tap to move a seam</Text>
             <SeamEditor text={word.text} chunks={word.chunks} onChange={setChunks} />
 
             <Text style={styles.label}>On the counter it looks like this</Text>
@@ -139,7 +155,7 @@ export default function AddWordScreen() {
               </Text>
             )}
 
-            <Text style={styles.label}>Say it, in your voice</Text>
+            <Text style={styles.label}>3 · Say it, in your voice</Text>
             <View style={styles.row}>
               <Pressable
                 style={[styles.record, state.isRecording && styles.recording]}
@@ -155,8 +171,15 @@ export default function AddWordScreen() {
               </Pressable>
 
               {take && !state.isRecording && (
-                <Pressable style={styles.hear} onPress={hear} accessibilityRole="button">
-                  <Text style={styles.hearText}>▶ hear it</Text>
+                <Pressable
+                  style={styles.hear}
+                  onPress={hear}
+                  accessibilityRole="button"
+                  accessibilityLabel={playing ? 'playing' : 'hear it'}
+                >
+                  <Text style={[styles.hearText, playing && styles.hearTextPlaying]}>
+                    {playing ? '■ playing…' : '▶ hear it'}
+                  </Text>
                 </Pressable>
               )}
             </View>
@@ -172,7 +195,7 @@ export default function AddWordScreen() {
               </View>
             )}
 
-            <Text style={styles.label}>Where you met it (optional)</Text>
+            <Text style={styles.label}>4 · Where you met it (optional)</Text>
             <TextInput
               style={styles.input}
               value={source}
@@ -194,6 +217,9 @@ export default function AddWordScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: NIGHT },
   body: { padding: 24, gap: 10, paddingBottom: 60 },
+  back: { color: LANTERN, fontSize: 16, marginBottom: 4 },
+  title: { color: CREAM, fontSize: 26, fontWeight: '800' },
+  blurb: { color: CREAM, opacity: 0.55, fontSize: 14, lineHeight: 20, marginBottom: 6 },
   label: { color: CREAM, opacity: 0.55, fontSize: 13, marginTop: 12 },
   input: {
     backgroundColor: 'rgba(255,248,231,0.08)',
@@ -216,6 +242,7 @@ const styles = StyleSheet.create({
   recordText: { color: NIGHT, fontWeight: '700', fontSize: 16 },
   hear: { paddingHorizontal: 14, paddingVertical: 14 },
   hearText: { color: LANTERN, fontSize: 15 },
+  hearTextPlaying: { color: FIRE },
   warn: { color: '#ff8f5e', fontSize: 13 },
   family: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
   familyText: { color: CREAM, opacity: 0.75, fontSize: 14, flex: 1 },

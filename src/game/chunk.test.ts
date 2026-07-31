@@ -37,6 +37,64 @@ describe('chunk', () => {
     expect(chunk('robot')).toEqual(['ro', 'bot']);
   });
 
+  it('takes the listed exception as a beginning, not only as the whole word', () => {
+    // one entry for `water` should settle `watermelon` too
+    expect(chunk('watermelon')[0]).toBe('wa');
+    expect(chunk('photograph')[0]).toBe('pho');
+  });
+
+  it('opens every seam after the first, so a long word comes out in syllables', () => {
+    /* Closing them all is what the first version did, and past two syllables
+       it stopped producing syllables at all: `ban|an|a`, `hol|id|ay`,
+       `hel|ic|op|ter`. The first vowel still closes — it is usually the
+       stressed one — and after that a lone consonant leans forward. */
+    expect(chunk('animal')).toEqual(['an', 'i', 'mal']);
+    expect(chunk('holiday')).toEqual(['hol', 'i', 'day']);
+    expect(chunk('crocodile')).toEqual(['croc', 'o', 'dile']);
+    expect(chunk('helicopter')).toEqual(['hel', 'i', 'cop', 'ter']);
+    expect(chunk('alligator')).toEqual(['al', 'li', 'ga', 'tor']);
+    expect(chunk('chocolate')).toEqual(['choc', 'o', 'late']);
+    expect(chunk('banana')).toEqual(['ba', 'na', 'na']);
+  });
+
+  it('cuts on the joins the word is built from, before anything else', () => {
+    /* A seam on a real join is never wrong, and these are the words the vowel
+       rules mangle worst: `bec|ause`, `rem|em|ber`, `cel|eb|rat|ion`. */
+    expect(chunk('because')).toEqual(['be', 'cause']);
+    expect(chunk('remember')).toEqual(['re', 'mem', 'ber']);
+    expect(chunk('celebration')).toEqual(['cel', 'e', 'bra', 'tion']);
+    expect(chunk('information')).toEqual(['in', 'for', 'ma', 'tion']);
+    expect(chunk('family')).toEqual(['fam', 'i', 'ly']);
+    expect(chunk('something')).toEqual(['some', 'thing']);
+    expect(chunk('understand')).toEqual(['un', 'der', 'stand']);
+  });
+
+  it('is not fooled by letters that only look like an ending', () => {
+    // `butterfly` ends in `ly` and `sing` ends in `ing`; neither is a suffix
+    expect(chunk('butterfly')).toEqual(['but', 'ter', 'fly']);
+    expect(chunk('sing')).toEqual(['sing']);
+    expect(chunk('thing')).toEqual(['thing']);
+    expect(chunk('table')).toEqual(['ta', 'ble']);
+    expect(chunk('best')).toEqual(['best']);
+  });
+
+  it('only makes -ed and -es a piece where they are actually spoken', () => {
+    // `wanted` has two syllables and `jumped` has one, on the same three letters
+    expect(chunk('wanted')).toEqual(['want', 'ed']);
+    expect(chunk('landed')).toEqual(['land', 'ed']);
+    expect(chunk('jumped')).toEqual(['jumped']);
+    expect(chunk('liked')).toEqual(['liked']);
+    expect(chunk('wishes')).toEqual(['wish', 'es']);
+    expect(chunk('boxes')).toEqual(['box', 'es']);
+    expect(chunk('makes')).toEqual(['makes']);
+    expect(chunk('apples')).toEqual(['ap', 'ples']);
+  });
+
+  it('lets gu keep its g, so penguin is readable', () => {
+    // `ng` normally ends a syllable, but `peng|uin` is not a thing anyone can read
+    expect(chunk('penguin')).toEqual(['pen', 'guin']);
+  });
+
   it('splits a doubled consonant down the middle', () => {
     expect(chunk('rabbit')).toEqual(['rab', 'bit']);
     expect(chunk('supper')).toEqual(['sup', 'per']);

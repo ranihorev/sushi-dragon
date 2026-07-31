@@ -6,9 +6,13 @@
  * thing we actually care about, and the strongest signal available. When he
  * hears a word and picks it out of four near-identical ones, that is
  * recognition: real evidence, obtainable without an adult in the room, but
- * weaker. They feed the same score at different weights rather than living in
- * separate columns, because the question the game asks is always the same one:
- * how soon should this word come round again?
+ * weaker.
+ *
+ * Both feed one score, because the question that score answers is always the
+ * same one — how soon should this word come round again? — and for that
+ * question a correct pick really is evidence. The distinction is kept where it
+ * actually matters instead: the hoard, the list that means *these are words my
+ * son can read*, counts only the times he read it out loud. See `isSolid`.
  */
 
 export type Verdict =
@@ -21,8 +25,8 @@ export type Verdict =
 
 export interface WordStat {
   seen: number;
-  /** recency-weighted, 0..1 — reacts faster than a plain average */
-  mastery: number;
+  /** how the last few showings went, oldest first — see `grip` */
+  recent: Verdict[];
   /** meal index when last shown, for spacing */
   lastSeenAt: number;
   /** the last thing you tapped, so the parent screen can show it back */
@@ -31,12 +35,13 @@ export interface WordStat {
   spoken: number;
 }
 
+/** How many showings the score looks at. */
+const WINDOW = 4;
+
 export interface DragonSettings {
   roundsPerMeal: number;
   /** show the three check buttons — off when he plays on his own */
   parentCheck: boolean;
-  /** keep the recordings of him reading, as a keepsake */
-  keepRecordings: boolean;
 }
 
 export interface DragonProfile {
@@ -58,16 +63,40 @@ export function blankProfile(): DragonProfile {
     decorations: ['lantern-left', 'lantern-right'],
     lastPlayed: '',
     dayStreak: 0,
-    settings: { roundsPerMeal: 6, parentCheck: true, keepRecordings: true },
+    settings: { roundsPerMeal: 6, parentCheck: true },
   };
 }
 
-const NEVER_SEEN: WordStat = { seen: 0, mastery: 0, lastSeenAt: -99, last: null, spoken: 0 };
+const NEVER_SEEN: WordStat = { seen: 0, recent: [], lastSeenAt: -99, last: null, spoken: 0 };
 
-export const statFor = (p: DragonProfile, word: string): WordStat => ({
-  ...NEVER_SEEN,
-  ...p.stats[word],
-});
+/** A stat as it was stored before the window replaced the running average. */
+type StoredStat = Partial<WordStat> & { mastery?: number };
+
+export const statFor = (p: DragonProfile, word: string): WordStat => {
+  const stored = p.stats[word] as StoredStat | undefined;
+  if (!stored) return NEVER_SEEN;
+  return { ...NEVER_SEEN, ...stored, recent: stored.recent ?? spread(stored) };
+};
+
+/**
+ * An old running-average score, read as a window of results.
+ *
+ * Nobody's hoard is allowed to empty because the scoring changed underneath
+ * it, so a stored `mastery` is spread back across a full window worth the same
+ * credit. It is a guess about a past that was never recorded in this much
+ * detail, and it only has to be close.
+ */
+function spread(stored: StoredStat): Verdict[] {
+  if (!stored.seen || stored.mastery === undefined) return [];
+  const target = Math.round(stored.mastery * WINDOW * 2) / 2;
+  const gots = Math.min(WINDOW, Math.floor(target));
+  const half = target - gots >= 0.5 && gots < WINDOW ? 1 : 0;
+  return [
+    ...(Array(Math.max(0, WINDOW - gots - half)).fill('not-yet') as Verdict[]),
+    ...(Array(half).fill('nudge') as Verdict[]),
+    ...(Array(gots).fill('got') as Verdict[]),
+  ].slice(-Math.min(WINDOW, stored.seen));
+}
 
 /**
  * How much a verdict is worth.
@@ -80,37 +109,47 @@ export const statFor = (p: DragonProfile, word: string): WordStat => ({
  */
 const CREDIT: Record<Verdict, number> = { got: 1, nudge: 0.5, 'not-yet': 0 };
 
-/** Production is the real thing, so it moves the score faster than recognition. */
-const ALPHA_READ = 0.4;
-const ALPHA_PICK = 0.22;
+/**
+ * How well he has hold of a word, 0..1.
+ *
+ * A window of the last few showings rather than a running average, and the
+ * difference is not academic: an average settles on the child's own credit
+ * rate, so a child who alternates `got` and `nudge` sits at 0.75 forever and
+ * can never clear a bar set at 0.85 — a word he substantially reads, marked
+ * permanently unlearnt. A window is a plain count of recent evidence, it can
+ * reach the top, and one bad day cannot undo it for long.
+ *
+ * A part-filled window scores low on purpose. Four showings is not much to ask
+ * before calling a word his, and until then the word keeps coming round.
+ */
+export const grip = (s: WordStat): number =>
+  s.recent.reduce((n, v) => n + CREDIT[v], 0) / WINDOW;
 
-function bump(
-  prev: WordStat,
-  credit: number,
-  alpha: number,
-  meal: number,
-  last: Verdict | null,
-  spoke: boolean,
-): WordStat {
+function bump(prev: WordStat, verdict: Verdict, meal: number, spoke: boolean): WordStat {
   return {
     seen: prev.seen + 1,
-    mastery: prev.mastery + alpha * (credit - prev.mastery),
+    recent: [...prev.recent, verdict].slice(-WINDOW),
     lastSeenAt: meal,
-    last,
-    spoken: prev.spoken + (spoke && credit === 1 ? 1 : 0),
+    last: spoke ? verdict : prev.last,
+    spoken: prev.spoken + (spoke && verdict === 'got' ? 1 : 0),
   };
 }
 
 /** He read it aloud and you said how it went. */
 export function recordRead(p: DragonProfile, word: string, verdict: Verdict): DragonProfile {
-  const stat = bump(statFor(p, word), CREDIT[verdict], ALPHA_READ, p.mealsCompleted, verdict, true);
+  const stat = bump(statFor(p, word), verdict, p.mealsCompleted, true);
   return { ...p, stats: { ...p.stats, [word]: stat } };
 }
 
-/** He heard it and picked it out — scored on the first attempt only. */
+/**
+ * He heard it and picked it out — scored on the first attempt only.
+ *
+ * It counts in the window like anything else, because it is real evidence of
+ * how well the word is going. What it cannot do is fill the hoard: `isSolid`
+ * asks separately for times he has read the word out loud.
+ */
 export function recordPick(p: DragonProfile, word: string, correct: boolean): DragonProfile {
-  const prev = statFor(p, word);
-  const stat = bump(prev, correct ? 1 : 0, ALPHA_PICK, p.mealsCompleted, prev.last, false);
+  const stat = bump(statFor(p, word), correct ? 'got' : 'not-yet', p.mealsCompleted, false);
   return { ...p, stats: { ...p.stats, [word]: stat } };
 }
 
@@ -130,7 +169,8 @@ export const recordOrder = recordPick;
  */
 export function isSolid(p: DragonProfile, word: string): boolean {
   const s = statFor(p, word);
-  return s.seen >= 4 && s.spoken >= 2 && s.mastery >= 0.85;
+  // three of his last four, counting a nudge as half
+  return s.spoken >= 2 && s.recent.length >= WINDOW && grip(s) >= 0.75;
 }
 
 /**
@@ -144,7 +184,7 @@ export function isSolid(p: DragonProfile, word: string): boolean {
  */
 export function dueScore(p: DragonProfile, word: string): number {
   const s = statFor(p, word);
-  const weakness = 1 - s.mastery;
+  const weakness = 1 - grip(s);
   const staleness = Math.min(p.mealsCompleted - s.lastSeenAt, 8) / 8;
   return (0.3 + weakness) * (0.5 + staleness);
 }

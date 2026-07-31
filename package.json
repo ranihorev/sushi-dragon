@@ -40,14 +40,16 @@
     "@testing-library/react": "^16.3.2",
     "@types/react": "~19.2.2",
     "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.1",
     "jsdom": "^30.0.1",
     "typescript": "~6.0.3",
     "vitest": "^4.1.10"
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "vitest run",

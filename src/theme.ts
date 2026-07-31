@@ -20,11 +20,15 @@ export const NORI = '#2b3a2f';
 export const SALMON = '#ff8f5e';
 export const ROE = '#ff6b35';
 
-/** the dragon */
-export const SCALE = '#3f8f6f';
-export const SCALE_DARK = '#2b6b52';
-export const BELLY = '#f2d492';
-export const HORN = '#f6e7c1';
+/**
+ * The dragon's green, which is the only part of it still described here.
+ *
+ * It used to be drawn in code from half a dozen of these. It is five rendered
+ * images now, so the rest of the palette went with them — this one stays
+ * because the parent screen colours a word's progress bar with it once the
+ * word is his.
+ */
+export const SCALE = '#7fd4ab';
 
 /** dragon fire, which is also the aburi torch that sears a new word */
 export const FIRE = '#ff9f1c';

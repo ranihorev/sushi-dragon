@@ -10,7 +10,7 @@
 
 import { distractors } from './families';
 import type { DragonProfile } from './progress';
-import { dueScore, statFor } from './progress';
+import { dueScore, grip, statFor } from './progress';
 import type { Word } from './words';
 import { isRoll } from './words';
 
@@ -52,9 +52,9 @@ function shuffle<T>(items: T[], rng: Rng): T[] {
  * the only difficulty knob in the game and it is never announced — he
  * experiences a busier counter, not a harder level.
  */
-function optionCount(mastery: number): number {
-  if (mastery < 0.3) return 2;
-  if (mastery < 0.65) return 3;
+function optionCount(hold: number): number {
+  if (hold < 0.3) return 2;
+  if (hold < 0.65) return 3;
   return 4;
 }
 
@@ -71,9 +71,10 @@ export function kindFor(profile: DragonProfile, word: Word, index: number): Roun
   const stat = statFor(profile, word.text);
   if (stat.seen === 0) return 'meet';
 
-  const scaffolded: RoundKind = isRoll(word) && stat.mastery < 0.7 ? 'order' : 'pick';
+  const hold = grip(stat);
+  const scaffolded: RoundKind = isRoll(word) && hold < 0.7 ? 'order' : 'pick';
   if (!profile.settings.parentCheck) return scaffolded;
-  if (stat.mastery < 0.3) return scaffolded;
+  if (hold < 0.3) return scaffolded;
 
   /* Even once he is reading them cold, every third round is something else.
      Six identical rounds is a worksheet; a child who can feel a worksheet
@@ -90,9 +91,9 @@ export function buildRound(
   rng: Rng = Math.random,
 ): Round {
   if (kind === 'pick') {
-    const mastery = statFor(profile, word.text).mastery;
+    const hold = grip(statFor(profile, word.text));
     const pool = dictionary.map((w) => w.text);
-    const wrong = distractors(word.text, pool, optionCount(mastery) - 1);
+    const wrong = distractors(word.text, pool, optionCount(hold) - 1);
     const byText = new Map(dictionary.map((w) => [w.text, w]));
     const options = wrong.map((t) => byText.get(t) ?? asWord(t, word));
     return { kind, word, options: shuffle([word, ...options], rng), slices: [] };

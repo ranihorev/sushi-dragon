@@ -1,6 +1,7 @@
-import Svg, { Circle, Ellipse, G, Path } from 'react-native-svg';
+import { Image, StyleSheet, View } from 'react-native';
+import Svg, { G, Path } from 'react-native-svg';
 
-import { BELLY, FIRE, FIRE_HOT, HORN, INK, SCALE, SCALE_DARK } from '@/theme';
+import { FIRE, FIRE_HOT } from '@/theme';
 
 export type Mood = 'idle' | 'happy' | 'puzzled' | 'chewing';
 
@@ -14,97 +15,80 @@ interface Props {
 }
 
 /**
- * The dragon, drawn from the side behind its counter.
+ * The dragon: a sushi chef, facing you across his counter.
  *
- * Everything it does is driven by `mood` and `fullness` alone, so the rest of
- * the game never has to know how it is put together, and it can be redrawn
- * without touching anything else.
+ * It was drawn here in code twice. First in profile, where it read as a green
+ * hippo — a big featureless flank with one eye stranded near the top of it.
+ * Then facing forward, which fixed the reading but was still plainly a shape
+ * made of circles, and a five-year-old can tell a character from an icon.
+ *
+ * So it is five rendered images now, one per face. Everything the game asks
+ * for still works the same way: `mood` picks the face, a nearly finished meal
+ * picks the full one, and the fire is drawn over the top in code, because it
+ * has to arrive and leave on cue.
+ *
+ * The images carry the night-blue of the room baked into their background.
+ * That is deliberate: a cut-out with a soft edge shows a grey halo against
+ * this background, and there is nowhere in the game where the dragon sits on
+ * anything else.
  */
-export function Dragon({ mood = 'idle', fullness = 0, breathing = false, size = 260 }: Props) {
-  const happy = mood === 'happy';
-  const puzzled = mood === 'puzzled';
-  const chewing = mood === 'chewing';
+const FACES = {
+  idle: require('../../assets/images/dragon/idle.png'),
+  happy: require('../../assets/images/dragon/happy.png'),
+  chewing: require('../../assets/images/dragon/chewing.png'),
+  puzzled: require('../../assets/images/dragon/puzzled.png'),
+  /** eyes half closed, belly round — the end of a meal */
+  full: require('../../assets/images/dragon/full.png'),
+};
 
-  // a fed dragon sinks a little and half-closes its eyes
-  const settle = fullness * 6;
-  const lidY = 40 + (happy ? 3 : 0) + fullness * 2;
-  const jaw = chewing ? 6 : happy ? 3 : 0;
+export function Dragon({ mood = 'idle', fullness = 0, breathing = false, size = 260 }: Props) {
+  /* A full dragon outranks a calm one, but never a chewing or a puzzled one:
+     those two are answers to something he did a moment ago, so they must show. */
+  const settled = mood === 'idle' || mood === 'happy';
+  const face = fullness > 0.8 && settled ? FACES.full : FACES[mood];
+
+  // a fed dragon sinks a little into its seat
+  const settle = fullness * 5;
 
   return (
-    <Svg width={size} height={size} viewBox="0 0 200 200">
-      <G translateY={settle}>
-        {breathing && (
+    <View style={{ width: size, height: size, transform: [{ translateY: settle }] }}>
+      <Image
+        source={face}
+        style={styles.face}
+        resizeMode="contain"
+        fadeDuration={0}
+        accessibilityIgnoresInvertColors
+      />
+
+      {/* The aburi torch: a searing breath, aimed off the counter. Over the
+          image, because fire is in front of what it is searing. */}
+      {breathing && (
+        <Svg
+          width={size}
+          height={size}
+          viewBox="0 0 200 200"
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        >
           <G opacity={0.95}>
-            {/* the aburi torch: a searing breath aimed along the counter */}
-            <Path d="M148 96 C170 88, 196 96, 200 104 C196 118, 170 124, 148 112 Z" fill={FIRE} />
-            <Path d="M150 102 C168 97, 186 102, 190 105 C186 112, 168 115, 150 108 Z" fill={FIRE_HOT} />
+            <Path
+              d="M104 112 C128 108, 156 88, 176 56 C174 80, 164 96, 150 106 C136 114, 120 118, 103 120 Z"
+              fill={FIRE}
+            />
+            <Path
+              d="M108 114 C130 110, 152 92, 166 68 C164 86, 155 98, 144 105 C132 111, 119 114, 107 116 Z"
+              fill={FIRE_HOT}
+            />
+            {/* two licks past the tip, which is what stops it reading as a leaf */}
+            <Path d="M182 44 C188 50, 184 58, 178 56 C180 52, 180 48, 182 44 Z" fill={FIRE_HOT} />
+            <Path d="M168 40 C174 45, 171 52, 166 50 C168 47, 167 43, 168 40 Z" fill={FIRE} />
           </G>
-        )}
-
-        {/* tail curling out behind */}
-        <Path
-          d="M24 150 C4 146, 8 118, 30 118 C22 132, 30 140, 44 140 Z"
-          fill={SCALE_DARK}
-        />
-
-        {/* body */}
-        <Ellipse cx="82" cy="132" rx="56" ry="42" fill={SCALE} />
-        <Ellipse cx="88" cy="142" rx="38" ry="27" fill={BELLY} opacity={0.85} />
-
-        {/* wing, folded */}
-        <Path
-          d="M62 104 C50 78, 82 68, 96 88 C86 92, 74 98, 62 104 Z"
-          fill={SCALE_DARK}
-          opacity={0.9}
-        />
-
-        {/* neck and head */}
-        <Path d="M104 118 C104 92, 112 74, 130 68 L150 92 C138 100, 128 112, 126 126 Z" fill={SCALE} />
-        <Ellipse cx="140" cy="72" rx="34" ry="27" fill={SCALE} />
-
-        {/* snout */}
-        <Path
-          d={`M158 68 C178 66, 186 74, 186 ${80 + jaw} C176 ${86 + jaw}, 162 ${84 + jaw}, 156 78 Z`}
-          fill={SCALE}
-        />
-        <Circle cx="178" cy="72" r="2.6" fill={INK} opacity={0.7} />
-
-        {/* horns */}
-        <Path d="M126 48 C122 34, 130 26, 138 30 C134 38, 133 44, 134 50 Z" fill={HORN} />
-        <Path d="M144 46 C144 34, 152 30, 157 34 C151 40, 149 44, 150 50 Z" fill={HORN} />
-
-        {/* the ridge down its back */}
-        <Path d="M70 96 L78 82 L86 96 Z" fill={HORN} opacity={0.9} />
-        <Path d="M50 104 L58 90 L66 104 Z" fill={HORN} opacity={0.9} />
-
-        {/* eye — the only part that carries the mood */}
-        {happy || fullness > 0.85 ? (
-          <Path
-            d={`M${132} ${lidY} q7 -7 14 0`}
-            stroke={INK}
-            strokeWidth={3}
-            strokeLinecap="round"
-            fill="none"
-          />
-        ) : (
-          <>
-            <Ellipse cx="139" cy={lidY + 2} rx="7" ry={puzzled ? 8 : 7} fill="#fff" />
-            <Circle cx={puzzled ? 141 : 140} cy={lidY + 3} r="3.6" fill={INK} />
-          </>
-        )}
-
-        {/* a raised brow does all the work of looking puzzled */}
-        {puzzled && (
-          <Path
-            d="M130 30 q9 -6 18 -1"
-            stroke={INK}
-            strokeWidth={2.6}
-            strokeLinecap="round"
-            fill="none"
-            opacity={0.75}
-          />
-        )}
-      </G>
-    </Svg>
+        </Svg>
+      )}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  face: { width: '100%', height: '100%' },
+});

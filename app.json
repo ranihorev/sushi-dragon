@@ -17,10 +17,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.sushidragon.app",
+      "requireFullScreen": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "So you can record a word in your own voice for the dragon to say.",
-        "UIRequiresFullScreen": true
+        "NSMicrophoneUsageDescription": "So you can record a word in your own voice for the dragon to say."
       }
     },
     "android": {

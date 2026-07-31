@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { isSolid, statFor, type DragonProfile } from '@/game/progress';
+import { grip, isSolid, statFor, type DragonProfile } from '@/game/progress';
 import * as store from '@/game/storage';
 import type { Word } from '@/game/words';
 import { CREAM, FIRE, LANTERN, NIGHT, SCALE, WASABI } from '@/theme';
@@ -98,6 +98,7 @@ export default function ParentScreen() {
           </Pressable>
           <Text style={styles.count}>
             {known} of {words.length} words
+            {profile.dayStreak > 1 ? ` · ${profile.dayStreak} days running` : ''}
           </Text>
         </View>
 
@@ -128,7 +129,7 @@ export default function ParentScreen() {
                   style={[
                     styles.barFill,
                     {
-                      width: `${Math.round(stat.mastery * 100)}%`,
+                      width: `${Math.round(grip(stat) * 100)}%`,
                       backgroundColor: isSolid(profile, word.text) ? SCALE : FIRE,
                     },
                   ]}
@@ -159,14 +160,6 @@ export default function ParentScreen() {
           Off, the game stops asking him to read aloud and only sets him rounds it can score by
           itself.
         </Text>
-
-        <View style={styles.setting}>
-          <Text style={styles.settingText}>Keep his recordings</Text>
-          <Switch
-            value={profile.settings.keepRecordings}
-            onValueChange={(v) => setSetting('keepRecordings', v)}
-          />
-        </View>
 
         <View style={styles.setting}>
           <Text style={styles.settingText}>Words per meal</Text>

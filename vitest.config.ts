@@ -45,6 +45,7 @@ export default defineConfig({
             { find: /^react-native-svg$/, replacement: at('test/stubs/svg.tsx') },
             { find: 'expo-router', replacement: at('test/stubs/expo-router.tsx') },
             { find: 'expo-haptics', replacement: at('test/stubs/expo-haptics.ts') },
+            { find: 'expo-audio', replacement: at('test/stubs/expo-audio.ts') },
             // last, because it is a prefix of most of the entries above it
             { find: /^react-native$/, replacement: 'react-native-web' },
           ],

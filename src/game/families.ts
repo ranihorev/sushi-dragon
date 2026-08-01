@@ -74,6 +74,80 @@ export const FAMILIES: Record<string, string[]> = {
 const RIMES_BY_LENGTH = Object.keys(FAMILIES).sort((a, b) => b.length - a.length);
 
 /**
+ * The words an early reader mixes up, listed together.
+ *
+ * The family table above only reaches words that rhyme, and the words a child
+ * meets first mostly do not: `was`, `come`, `they`, `there`. Left to the
+ * families alone, the counter filled up with `apple` and `because` — nothing
+ * alike, nothing to read, a round he wins by looking at the length of it.
+ *
+ * These are the pairs that actually cost him: the same letters backwards
+ * (`was`/`saw`), one letter apart (`want`/`what`), or the same first two
+ * letters and a different tail (`the`/`they`/`there`/`them`).
+ *
+ * A word here does not have to be in his dictionary. It is only ever offered
+ * as a wrong answer, and the point of a wrong answer is to look right.
+ */
+export const CONFUSABLE: Record<string, string[]> = {
+  was: ['saw', 'way', 'want'],
+  saw: ['was', 'say', 'sat'],
+  on: ['no', 'one', 'own'],
+  no: ['on', 'now', 'not'],
+  of: ['off', 'for', 'or'],
+  for: ['form', 'from', 'four', 'of'],
+  from: ['form', 'for', 'front'],
+  the: ['then', 'they', 'them', 'there'],
+  they: ['the', 'them', 'then', 'there'],
+  them: ['the', 'then', 'they'],
+  then: ['the', 'them', 'they', 'when'],
+  there: ['their', 'these', 'three', 'they'],
+  where: ['were', 'we', 'there', 'here'],
+  were: ['where', 'we', 'here'],
+  here: ['her', 'hear', 'there', 'where'],
+  what: ['want', 'that', 'when', 'hat'],
+  want: ['what', 'went', 'wait'],
+  come: ['came', 'some', 'home', 'cone'],
+  some: ['same', 'come', 'sun'],
+  said: ['says', 'sad', 'sand', 'slid'],
+  says: ['said', 'stay', 'sky'],
+  have: ['gave', 'has', 'hive'],
+  who: ['how', 'why', 'what', 'whose'],
+  how: ['who', 'now', 'show'],
+  you: ['your', 'yes', 'yet'],
+  your: ['you', 'our', 'yours'],
+  one: ['once', 'on', 'own', 'none'],
+  two: ['to', 'too', 'tow'],
+  could: ['cloud', 'would', 'should', 'cold'],
+  would: ['world', 'could', 'should', 'wood'],
+  love: ['live', 'like', 'lone', 'move'],
+  live: ['love', 'life', 'like'],
+  put: ['pot', 'pat', 'but', 'cut'],
+  friend: ['fried', 'find', 'friends'],
+  because: ['before', 'became', 'beside'],
+  little: ['letter', 'title', 'bottle'],
+  hungry: ['angry', 'hunger', 'hurry'],
+  monster: ['master', 'monsters', 'mister'],
+  rabbit: ['rabbits', 'ribbon', 'robot'],
+  dragon: ['wagon', 'drag', 'dragons'],
+  chicken: ['kitchen', 'chick', 'children'],
+  picnic: ['panic', 'pick', 'picture'],
+  apple: ['ample', 'apples', 'ripple'],
+  birthday: ['birth', 'bird', 'birthdays'],
+  sunshine: ['sunny', 'shine', 'sunshade'],
+  jumping: ['jumped', 'jumper', 'bumping'],
+  sushi: ['shush', 'sunny', 'sunshine'],
+};
+
+/** Near-misses for a word, from the table above, both ways round. */
+function confusable(word: string): string[] {
+  const listed = CONFUSABLE[word] ?? [];
+  const mentions = Object.entries(CONFUSABLE)
+    .filter(([, alike]) => alike.includes(word))
+    .map(([other]) => other);
+  return [...new Set([...listed, ...mentions])];
+}
+
+/**
  * The family a word belongs to, or null if it stands alone.
  *
  * Only single-syllable words get one: `-ight` is a pattern you can carry to a
@@ -104,37 +178,78 @@ export function relatives(word: string): string[] {
  *    the first letter or two, so the choice cannot be made on shape.
  * 2. Same length, one letter different — `cat` against `cot`. Forces him to
  *    look at the vowel, which is where most of his errors will be.
- * 3. Same first letter and length — still requires reading past the start,
+ * 3. The same letters in another order — `was` against `saw`. See `SCRAMBLED`.
+ * 4. Same start, different end — `the` against `then`, `star` against `start`.
+ * 5. Same first letter and length — still requires reading past the start,
  *    which is where a guessing reader stops.
  *
  * Anything that survives none of those is a filler, and fillers are a wasted
  * round: he answers correctly without having read anything.
+ *
+ * The list is offered hardest first, so a counter of four holds the four
+ * nastiest words available. The one thing that waits is the scrambled pair,
+ * which arrives only once he has some hold on the word.
  */
-export function distractors(word: string, pool: string[], count: number): string[] {
+export function distractors(
+  word: string,
+  pool: string[],
+  count: number,
+  /** how well he holds this word, 0..1 — see `SCRAMBLED` */
+  hold = 1,
+): string[] {
   const w = word.toLowerCase();
-  const others = [...new Set([...relatives(w), ...pool.map((p) => p.toLowerCase())])].filter(
-    (o) => o !== w && o.length > 0,
-  );
+  const others = [
+    ...new Set([...relatives(w), ...confusable(w), ...pool.map((p) => p.toLowerCase())]),
+  ].filter((o) => o !== w && o.length > 0);
 
-  const family = new Set(relatives(w));
-  const rank = (o: string) => {
-    if (family.has(o)) return 0;
-    if (o.length === w.length && differsByOne(o, w)) return 1;
-    if (o.length === w.length && o[0] === w[0]) return 2;
-    return 3;
-  };
+  const ranked = others
+    .map((o) => ({ o, r: rank(w, o) }))
+    .filter(({ r }) => r !== SCRAMBLED || hold >= 0.5)
+    .sort((a, b) => a.r - b.r || a.o.localeCompare(b.o));
 
-  return others
-    .map((o) => ({ o, r: rank(o) }))
-    .sort((a, b) => a.r - b.r || a.o.localeCompare(b.o))
-    .slice(0, count)
-    .map((x) => x.o);
+  return ranked.slice(0, count).map((x) => x.o);
 }
 
-function differsByOne(a: string, b: string): boolean {
+/**
+ * The same letters, in another order: `was` and `saw`, `net` and `ten`.
+ *
+ * The hardest class there is, and the one a beginner fails at for a reason
+ * that has nothing to do with knowing the word — he is still learning that
+ * English is read left to right, every time, without exception. So it is held
+ * back until he has a grip on the word, and then it is the sharpest test in
+ * the game: there is no shape to fall back on, no first letter to guess from,
+ * nothing to do but read it.
+ */
+const SCRAMBLED = 2;
+
+function rank(w: string, o: string): number {
+  if (relatives(w).includes(o)) return 0;
+  // one letter different, which is nearly always the vowel: `cat` and `cot`
+  if (o.length === w.length && differsBy(o, w) === 1) return 1;
+  if (o.length === w.length && sameLetters(o, w)) return SCRAMBLED;
+  // named as a pair by hand, because these are the ones that actually cost him
+  if (confusable(w).includes(o)) return 2.5;
+  /* Shares the start, differs at the end: `the` and `then`, `star` and
+     `start`. This is the trap a guessing reader walks into every time — he
+     reads two letters, recognises something, and stops looking. */
+  if (Math.abs(o.length - w.length) <= 2 && sharedStart(o, w) >= Math.min(3, w.length)) return 3;
+  if (o.length === w.length && o[0] === w[0]) return 4;
+  return 5;
+}
+
+function differsBy(a: string, b: string): number {
   let diff = 0;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
-  return diff === 1;
+  return diff;
+}
+
+const sorted = (s: string) => [...s].sort().join('');
+const sameLetters = (a: string, b: string) => a !== b && sorted(a) === sorted(b);
+
+function sharedStart(a: string, b: string): number {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n++;
+  return n;
 }
 
 /** Every word the families know about — the seed pool for a new dictionary. */

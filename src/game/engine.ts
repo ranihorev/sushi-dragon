@@ -93,7 +93,7 @@ export function buildRound(
   if (kind === 'pick') {
     const hold = grip(statFor(profile, word.text));
     const pool = dictionary.map((w) => w.text);
-    const wrong = distractors(word.text, pool, optionCount(hold) - 1);
+    const wrong = distractors(word.text, pool, optionCount(hold) - 1, hold);
     const byText = new Map(dictionary.map((w) => [w.text, w]));
     const options = wrong.map((t) => byText.get(t) ?? asWord(t, word));
     return { kind, word, options: shuffle([word, ...options], rng), slices: [] };

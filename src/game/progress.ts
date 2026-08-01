@@ -51,6 +51,8 @@ export interface DragonProfile {
   decorations: string[];
   lastPlayed: string;
   dayStreak: number;
+  /** the grown-up has been told how the game works, once, at the start */
+  introSeen: boolean;
   settings: DragonSettings;
 }
 
@@ -63,6 +65,7 @@ export function blankProfile(): DragonProfile {
     decorations: ['lantern-left', 'lantern-right'],
     lastPlayed: '',
     dayStreak: 0,
+    introSeen: false,
     settings: { roundsPerMeal: 6, parentCheck: true },
   };
 }

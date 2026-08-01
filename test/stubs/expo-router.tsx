@@ -8,7 +8,14 @@ export const router = {
   back: vi.fn(),
   navigate: vi.fn(),
   dismissAll: vi.fn(),
+  /* Whether there is a screen behind this one. A test that cares says so with
+     `stackedOn(n)`; by default there is one, which is the ordinary case of
+     having walked here from the game. */
+  canGoBack: vi.fn(() => true),
 };
+
+/** How deep the stack is, for a test about a screen opened from nowhere. */
+export const stackedOn = (screens: number) => router.canGoBack.mockReturnValue(screens > 0);
 
 export const useRouter = () => router;
 export const usePathname = () => '/';

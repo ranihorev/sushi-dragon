@@ -5,7 +5,6 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -21,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SeamEditor } from '@/components/SeamEditor';
 import { Sushi } from '@/components/Sushi';
 import { hearOnce } from '@/game/playback';
+import { leave } from '@/leaving';
 import * as store from '@/game/storage';
 import { family, makeWord, reseam, type Word } from '@/game/words';
 import { relatives } from '@/game/families';
@@ -105,7 +105,7 @@ export default function AddWordScreen() {
 
     store.saveDictionary(next);
     if (take) store.keepRecording(word.text, take);
-    router.back();
+    leave();
   };
 
   return (
@@ -113,7 +113,7 @@ export default function AddWordScreen() {
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {/* There was no way off this screen but saving a word, which is a
             trap if you opened it to see what it was. */}
-        <Pressable onPress={() => router.back()} hitSlop={16} accessibilityRole="button">
+        <Pressable onPress={leave} hitSlop={16} accessibilityRole="button">
           <Text style={styles.back}>‹ back</Text>
         </Pressable>
 

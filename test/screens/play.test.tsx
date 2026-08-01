@@ -25,11 +25,14 @@ vi.mock('@/game/storage', () => ({
   forgetRecording: vi.fn(),
 }));
 
+const spoke = vi.fn();
+
 vi.mock('@/game/audio', () => ({
   prepare: vi.fn(async () => {}),
   stop: vi.fn(),
-  speak: vi.fn(async () => {}),
+  speak: vi.fn(async (beats: unknown[]) => spoke(beats)),
   sound: (source: string) => ({ play: source }),
+  said: (text: string) => ({ say: text }),
 }));
 
 const { default: PlayScreen } = await import('@/app/index');
@@ -43,10 +46,26 @@ const stat = (over: Partial<WordStat> = {}): WordStat => ({
   ...over,
 });
 
+/**
+ * Everything the screen has said by the time the question has been asked.
+ *
+ * The question is deliberately a beat behind the round appearing — a prompt
+ * that arrives on top of the last one is the fault this game's audio exists to
+ * avoid — so a test that looks straight after rendering sees silence.
+ */
+async function asked(): Promise<{ play?: string; say?: string }[]> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  });
+  return spoke.mock.calls.flat(2) as { play?: string; say?: string }[];
+}
+
 /** One round, one word, a grown-up listening — the situation each test wants. */
 function situation(word: string, over: Partial<WordStat>) {
   profile = {
     ...blankProfile(),
+    // the how-it-works card is a first-launch thing; these tests are past it
+    introSeen: true,
     stats: { [word]: stat(over) },
     settings: { ...blankProfile().settings, roundsPerMeal: 1, parentCheck: true },
   };
@@ -56,6 +75,7 @@ function situation(word: string, over: Partial<WordStat>) {
 beforeEach(() => {
   voiced = true;
   saveProfile.mockClear();
+  spoke.mockClear();
   situation('dragon', {});
 });
 
@@ -214,36 +234,44 @@ describe('the front page', () => {
   });
 });
 
-describe('a dragon with no voice', () => {
-  it('says so, instead of serving rounds he cannot answer', () => {
+describe('a dragon nobody has recorded a voice for', () => {
+  /* It used to say "the dragon can't speak yet" and refuse to play until a
+     grown-up had sat down and recorded something. A brand new app, opened by a
+     child, showed him a paragraph he could not read. The iPad has a voice; the
+     recording is the upgrade, not the entry fee. */
+  it('plays anyway, in the iPad’s own voice', () => {
     voiced = false;
     render(<PlayScreen />);
-    expect(screen.getByText(/can.t speak yet/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('grown-ups')).toBeInTheDocument();
-  });
 
-  it('starts playing as soon as it has been given a voice', () => {
-    /* It didn't. This screen stays mounted while the grown-ups' screens sit on
-       top of it, so what it read at startup was all it ever knew: you could
-       record two words, come back, and be told again that the dragon cannot
-       speak. */
-    voiced = false;
-    render(<PlayScreen />);
-    expect(screen.getByText(/can.t speak yet/i)).toBeInTheDocument();
-
-    voiced = true;
-    act(() => refocus());
-
-    expect(screen.queryByText(/can.t speak yet/i)).toBeNull();
+    expect(screen.queryByText(/can.t speak/i)).toBeNull();
     expect(screen.getByLabelText('the plate')).toBeInTheDocument();
   });
 
-  it('deals the meal again, so words added while away are in it', () => {
+  it('asks the whole question out loud, since it is one voice throughout', async () => {
     voiced = false;
+    situation('dragon', { seen: 2, recent: ['got'] });
+    render(<PlayScreen />);
+
+    const beats = await asked();
+    expect(beats.some((b) => b?.say?.includes('dragon'))).toBe(true);
+  });
+
+  it('uses your recording where there is one, and says nothing else over it', async () => {
+    voiced = true;
+    situation('dragon', { seen: 2, recent: ['got'] });
+    render(<PlayScreen />);
+
+    const beats = await asked();
+    expect(beats.some((b) => b?.play === 'file:///dragon.m4a')).toBe(true);
+    expect(beats.some((b) => b?.say)).toBe(false);
+  });
+});
+
+describe('coming back from the grown-ups’ side', () => {
+  it('deals the meal again, so words added while away are in it', () => {
     dictionary = [makeWord('dragon')];
     render(<PlayScreen />);
 
-    voiced = true;
     dictionary = [makeWord('rabbit')];
     profile = { ...profile, stats: { rabbit: stat({ seen: 1 }) } };
     act(() => refocus());
@@ -259,5 +287,67 @@ describe('a dragon with no voice', () => {
 
     act(() => refocus());
     expect(screen.getByTestId('slot-full')).toHaveTextContent('drag');
+  });
+});
+
+describe('saying what the game wants', () => {
+  /* The rules were only ever in the spoken prompt, which says the word and not
+     what to do with it — and in a reading round says nothing at all. */
+  it('tells the grown-up how it works, once, before the first meal', () => {
+    profile = { ...profile, introSeen: false };
+    render(<PlayScreen />);
+
+    expect(screen.getByText(/feed the dragon words/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText('the plate')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('start playing'));
+    expect(screen.getByLabelText('the plate')).toBeInTheDocument();
+    expect((saveProfile.mock.calls.at(-1)![0] as DragonProfile).introSeen).toBe(true);
+  });
+
+  it('never shows it again', () => {
+    render(<PlayScreen />);
+    expect(screen.queryByText(/feed the dragon words/i)).toBeNull();
+  });
+
+  it('says what to do in the round he is in', () => {
+    render(<PlayScreen />);
+    expect(screen.getByText(/put the pieces in order/i)).toBeInTheDocument();
+
+    situation('dragon', { seen: 8, recent: ['got', 'got', 'got', 'got'], spoken: 4 });
+    render(<PlayScreen />);
+    expect(screen.getByText(/read it out loud/i)).toBeInTheDocument();
+  });
+
+  it('says what the green letter is doing, while the word is being introduced', () => {
+    /* The mark is the most useful thing the game knows about a word like
+       `have`, and the sentence explaining it sat unread in the word list. */
+    profile = { ...blankProfile(), introSeen: true, stats: {} };
+    dictionary = [makeWord('have')];
+    render(<PlayScreen />);
+
+    expect(screen.getByText(/the “e” does nothing/i)).toBeInTheDocument();
+  });
+
+  it('does not explain a word with nothing odd about it', () => {
+    profile = { ...blankProfile(), introSeen: true, stats: {} };
+    dictionary = [makeWord('dragon')];
+    render(<PlayScreen />);
+
+    expect(screen.queryByText(/^the “/)).toBeNull();
+  });
+
+  it('labels the three buttons as a question for the grown-up', () => {
+    situation('dragon', { seen: 8, recent: ['got', 'got', 'got', 'got'], spoken: 4 });
+    render(<PlayScreen />);
+    act(() => void pan().dragTo(40));
+
+    expect(screen.getByText(/how did he read it/i)).toBeInTheDocument();
+  });
+
+  it('says how to start, because a dragon is not obviously a button', () => {
+    render(<PlayScreen />);
+    fireEvent.click(screen.getByLabelText(/back to the front/i));
+    expect(screen.getByText(/tap the dragon/i)).toBeInTheDocument();
   });
 });

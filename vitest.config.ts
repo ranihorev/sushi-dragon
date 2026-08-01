@@ -38,6 +38,11 @@ export default defineConfig({
         plugins: [react()],
         resolve: {
           alias: [
+            /* Vite knows an image when it sees one and hands back a url. It
+               does not know a sound: it hands the bytes to node, which tries to
+               parse them as JavaScript and fails on the first one that isn't
+               ASCII. */
+            { find: /^.*\.m4a$/, replacement: at('test/stubs/sound.ts') },
             { find: /^@\//, replacement: `${at('src')}/` },
             { find: 'react-native-gesture-handler', replacement: at('test/stubs/gesture-handler.tsx') },
             { find: 'react-native-reanimated', replacement: at('test/stubs/reanimated.tsx') },

@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { grip, isSolid, statFor, type DragonProfile } from '@/game/progress';
 import * as store from '@/game/storage';
 import type { Word } from '@/game/words';
+import { leave } from '@/leaving';
 import { CREAM, FIRE, LANTERN, NIGHT, SCALE, WASABI } from '@/theme';
 
 /**
@@ -93,7 +94,7 @@ export default function ParentScreen() {
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.body}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={16} accessibilityRole="button">
+          <Pressable onPress={leave} hitSlop={16} accessibilityRole="button">
             <Text style={styles.back}>‹ back</Text>
           </Pressable>
           <Text style={styles.count}>
@@ -143,9 +144,43 @@ export default function ParentScreen() {
                       word.source ? ` · ${word.source}` : ''
                     }`}
               </Text>
+
+              {/* Why this word is marked. The game has always known it and has
+                  never said it anywhere you could read it. */}
+              {word.tricky && (
+                <Text style={styles.lying}>
+                  the “{word.text.slice(word.tricky.start, word.tricky.end)}” {word.tricky.says}
+                </Text>
+              )}
             </Pressable>
           );
         })}
+
+        {/* The rules, written down somewhere they can be found again. They
+            used to exist only in the game itself, which explained them by
+            playing them — fine for the child, no help at all for the adult
+            being asked to run it. */}
+        <Text style={styles.section}>How the game works</Text>
+        <Text style={styles.hint}>
+          A meal is a handful of words. Each one arrives as a round, and which round it gets depends
+          on how well he knows it:
+        </Text>
+        {[
+          'New word — the dragon sears it and says it. Nothing is scored.',
+          'Heard it — the dragon asks for a word out loud; he drags the right sushi up to its mouth.',
+          'In pieces — a long word arrives cut into syllables to put back in order.',
+          'Read it — the word alone. He reads it out loud, feeds it, and you tap how it went.',
+          'A green mark on a letter means that letter does not say its usual sound. Every marked word in the list above says what it is up to.',
+        ].map((line) => (
+          <Text key={line} style={styles.rule}>
+            · {line}
+          </Text>
+        ))}
+        <Text style={styles.hint}>
+          Words he reads well go on the shelf behind the counter, and come back less often. Words he
+          stumbles on come back tomorrow. The dragon speaks in the iPad&apos;s voice until you
+          record one — a word with your own voice on it is worth far more to him.
+        </Text>
 
         <Text style={styles.section}>Settings</Text>
 
@@ -234,6 +269,8 @@ const styles = StyleSheet.create({
   },
   settingText: { color: CREAM, fontSize: 15, flex: 1 },
   hint: { color: CREAM, opacity: 0.45, fontSize: 12, lineHeight: 17 },
+  rule: { color: CREAM, opacity: 0.6, fontSize: 13, lineHeight: 19, paddingLeft: 4 },
+  lying: { color: WASABI, opacity: 0.85, fontSize: 12, marginTop: 3 },
   stepper: { flexDirection: 'row', gap: 6 },
   step: {
     width: 40,

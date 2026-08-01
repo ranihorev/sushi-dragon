@@ -20,18 +20,39 @@ import { blankProfile } from './progress';
 import type { Word } from './words';
 import { starterDictionary } from './words';
 
-const ROOT = new Directory(Paths.document, 'sushi-dragon');
-const VOICE = new Directory(ROOT, 'voice');
+/**
+ * Both folders are found on first use, and never at import time.
+ *
+ * The dev server renders every screen once in node before it serves anything,
+ * and in node there is no file system behind `expo-file-system`: asking it for
+ * the document directory throws. Built at module scope, that throw happened
+ * while this module was being imported, which killed every screen that touches
+ * storage — that is, all of them — and the app served a 500 instead of a game.
+ *
+ * Found lazily, the same throw lands inside the try/catch of whichever function
+ * asked, and a platform with no file system simply plays without a memory.
+ */
+let root: Directory | undefined;
+let voice: Directory | undefined;
+
+function dirs() {
+  if (!root || !voice) {
+    root = new Directory(Paths.document, 'sushi-dragon');
+    voice = new Directory(root, 'voice');
+  }
+  return { root, voice };
+}
 
 function ensure() {
-  if (!ROOT.exists) ROOT.create({ intermediates: true });
-  if (!VOICE.exists) VOICE.create({ intermediates: true });
+  const { root, voice } = dirs();
+  if (!root.exists) root.create({ intermediates: true });
+  if (!voice.exists) voice.create({ intermediates: true });
 }
 
 function readJson<T>(name: string): T | null {
   try {
     ensure();
-    const file = new File(ROOT, name);
+    const file = new File(dirs().root, name);
     if (!file.exists) return null;
     return JSON.parse(file.textSync()) as T;
   } catch {
@@ -42,7 +63,7 @@ function readJson<T>(name: string): T | null {
 function writeJson(name: string, value: unknown) {
   try {
     ensure();
-    const file = new File(ROOT, name);
+    const file = new File(dirs().root, name);
     if (!file.exists) file.create();
     file.write(JSON.stringify(value));
   } catch {
@@ -68,7 +89,7 @@ export function loadDictionary(): Word[] {
 export const saveDictionary = (words: Word[]) => writeJson('words.json', words);
 
 /** Where a word's recording lives — one file per word, named after it. */
-export const voiceFile = (word: string) => new File(VOICE, `${word}.m4a`);
+export const voiceFile = (word: string) => new File(dirs().voice, `${word}.m4a`);
 
 export const hasVoice = (word: string) => {
   try {

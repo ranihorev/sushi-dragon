@@ -506,15 +506,9 @@ export default function PlayScreen() {
           Without it the game is a dragon, some sushi, and no clue: the rules
           were only ever in the spoken prompt, which says the word and not what
           to do with it — and says nothing at all in a reading round. */}
-        {/* The button that says it again lives here, next to the question it
-            repeats. It used to be a 🔊 in the far corner by the food — system
-            grey, on a night-blue screen, nowhere near the thing it acts on. */}
-        <View style={styles.promptRow}>
-          <Text style={styles.prompt}>
-            {rollReady ? 'Well done — that is the word!' : PROMPT[round.kind]}
-          </Text>
-          {round.kind !== 'read' && <SayAgain onPress={again} />}
-        </View>
+        <Text style={styles.prompt}>
+          {rollReady ? 'Well done — that is the word!' : PROMPT[round.kind]}
+        </Text>
 
         {/* What the green dab on a letter means.
             The mark has been there since the first version and the explanation
@@ -526,6 +520,17 @@ export default function PlayScreen() {
             sushi on the counter that had one. */}
         {round.kind === 'meet' && round.word.tricky && (
           <Text style={styles.lying}>{lyingBit(round.word)}</Text>
+        )}
+
+        {/* Say it again, under the question rather than beside it: beside it,
+            a button the width of a word pushed the sentence off the middle of
+            the screen and the whole column stopped lining up under the dragon.
+            It used to be a 🔊 in the far corner by the food — system grey, on a
+            night-blue screen, nowhere near the thing it acts on. */}
+        {round.kind !== 'read' && (
+          <View style={styles.againRow}>
+            <SayAgain onPress={again} />
+          </View>
         )}
 
         {/* How much of the meal is left, as plates. He cannot read "round 3 of
@@ -887,13 +892,7 @@ const styles = StyleSheet.create({
   },
   counter: { height: 16, backgroundColor: WOOD, borderTopWidth: 4, borderTopColor: WOOD_DARK },
 
-  promptRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    paddingHorizontal: 24,
-  },
+  againRow: { alignItems: 'center', paddingTop: 12 },
 
   check: {
     position: 'absolute',

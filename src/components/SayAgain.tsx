@@ -51,7 +51,10 @@ export function SayAgain({ onPress }: { onPress: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  button: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /* A column, so the circle sits on the middle of the screen with everything
+     else in this stack. Side by side, the word beside it pushed the circle off
+     the line the dragon and the question are drawn on. */
+  button: { alignItems: 'center', gap: 3 },
   circle: {
     width: 46,
     height: 46,
@@ -62,5 +65,5 @@ const styles = StyleSheet.create({
   },
   /* For the grown-up. He cannot read it, and the grown-up handing him the iPad
      has three seconds to work out what everything on the screen does. */
-  label: { color: LANTERN, fontSize: 14, opacity: 0.8 },
+  label: { color: LANTERN, fontSize: 13, opacity: 0.75 },
 });

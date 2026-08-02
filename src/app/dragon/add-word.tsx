@@ -44,7 +44,10 @@ export default function AddWordScreen() {
   const [text, setText] = useState('');
   const [source, setSource] = useState('');
   const [chunks, setChunks] = useState<string[]>([]);
-  const [withFamily, setWithFamily] = useState(true);
+  /* Off unless you ask for it. Seven relatives arriving behind one typed word
+     is a dictionary you did not write, and the meal planner ranks by need — so
+     the word he actually tripped on waits its turn behind `hat` and `rat`. */
+  const [withFamily, setWithFamily] = useState(false);
   const [take, setTake] = useState<string | null>(null);
   const [granted, setGranted] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -110,9 +113,9 @@ export default function AddWordScreen() {
     if (existing >= 0) next[existing] = entry;
     else next.push(entry);
 
-    /* One word he tripped on is really a pattern he does not own yet. Bringing
-       the rest of the family in costs nothing here and means the next time he
-       meets `light` he has already met its shape. */
+    /* One word he tripped on is really a pattern he does not own yet, and the
+       family is there for the evening you want the whole pattern taught. Asked
+       for, never assumed — see the switch above. */
     if (withFamily) {
       for (const relative of family(entry)) {
         if (!next.some((w) => w.text === relative.text)) next.push(relative);

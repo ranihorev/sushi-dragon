@@ -71,10 +71,23 @@ describe('saving a word', () => {
     expect(router.back).toHaveBeenCalled();
   });
 
-  it('brings the rest of the family along', () => {
+  it('adds the one word you typed, and nothing else', () => {
+    /* Eight words out of one is a dictionary nobody wrote, and the meal
+       planner ranks by need: the word he actually tripped on would wait its
+       turn behind seven of its cousins. */
+    render(<AddWordScreen />);
+    type('night');
+    fireEvent.click(screen.getByText(/add to the dictionary/i));
+
+    const saved = saveDictionary.mock.calls.at(-1)?.[0] as Word[];
+    expect(saved.map((w) => w.text)).toEqual(['night']);
+  });
+
+  it('brings the rest of the family along when you ask for it', () => {
     // one word he tripped on is a pattern he does not own yet
     render(<AddWordScreen />);
     type('night');
+    fireEvent.click(screen.getByRole('switch'));
     fireEvent.click(screen.getByText(/add to the dictionary/i));
 
     const saved = saveDictionary.mock.calls.at(-1)?.[0] as Word[];

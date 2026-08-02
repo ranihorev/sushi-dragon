@@ -147,38 +147,53 @@ describe('taking a word off the list', () => {
 });
 
 describe('pushing a word off the list', () => {
-  it('asks the same question the button asks', () => {
+  /* The swipe used to raise the button's question, which made it two deliberate
+     acts to do what the button already did in two. Carrying the row all the way
+     across is the deliberate act. */
+  it('takes the word and its recording without asking', () => {
     render(<ParentScreen />);
-    swipe(0, -120);
+    swipe(0, -400);
 
-    expect(Alert.alert).toHaveBeenCalled();
-    expect(String(vi.mocked(Alert.alert).mock.calls.at(-1)![0])).toMatch(/have/);
-    expect(saved).not.toHaveBeenCalled();
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(forgot).toHaveBeenCalledWith('have');
+    expect(saved.mock.calls.at(-1)![0].map((w: Word) => w.text)).toEqual(['sushi']);
+    expect(screen.queryByLabelText('remove have')).toBeNull();
   });
 
-  it('removes the word once that is confirmed', () => {
+  it('takes the row that was pushed', () => {
     render(<ParentScreen />);
-    swipe(1, -120);
-    pressed('Remove');
+    swipe(1, -400);
 
     expect(forgot).toHaveBeenCalledWith('sushi');
     expect(screen.queryByLabelText('remove sushi')).toBeNull();
+    expect(screen.getByLabelText('remove have')).toBeInTheDocument();
   });
 
-  /* A list that lives inside a scroll view gets nudged sideways all day. A nudge
-     must not put a question on the screen. */
+  /* A list that lives inside a scroll view gets nudged sideways all day. Now
+     that nothing asks, a short push has to cost nothing at all. */
   it('ignores a nudge', () => {
     render(<ParentScreen />);
     swipe(0, -30);
 
+    expect(saved).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('remove have')).toBeInTheDocument();
+  });
+
+  it('keeps a word the row did not carry far enough', () => {
+    render(<ParentScreen />);
+    swipe(0, -120);
+
     expect(Alert.alert).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('remove have')).toBeInTheDocument();
   });
 
   it('ignores a swipe the other way', () => {
     render(<ParentScreen />);
-    swipe(0, 140);
+    swipe(0, 400);
 
-    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('remove have')).toBeInTheDocument();
   });
 });
 

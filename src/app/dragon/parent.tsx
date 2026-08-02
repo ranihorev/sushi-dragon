@@ -62,11 +62,11 @@ export default function ParentScreen() {
      other iPad, which still has the word, hands it straight back. */
   const drop = (word: Word) => setWords(store.removeWord(word.text, words));
 
-  /* There is a confirmation because the recording goes with the word and a
-     recording cannot be got back. The button, on the other hand, is right there
-     on the row: removing a word used to be a long press with a line of small
-     print at the bottom of the screen explaining that it existed, which is a
-     feature nobody has. */
+  /* The button asks first, because the recording goes with the word and a
+     recording cannot be got back — and a button sitting on a row is a thing a
+     thumb hits by mistake. The swipe does not ask: carrying the row half way
+     across the screen is already the deliberate act the question was there to
+     collect, and asking again turned a one-move gesture into a two-move one. */
   const remove = (word: Word) => {
     Alert.alert(`Remove “${word.text}”?`, 'Its recording goes with it.', [
       { text: 'Keep it', style: 'cancel' },
@@ -100,8 +100,8 @@ export default function ParentScreen() {
           return (
             <SwipeAway
               key={word.text}
-              onRemove={() => remove(word)}
-              label={`${word.text} — swipe left to remove`}
+              onRemove={() => drop(word)}
+              label={`${word.text} — swipe all the way left to remove`}
             >
               <View style={styles.word}>
                 <View style={styles.wordMain}>

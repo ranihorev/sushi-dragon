@@ -1,53 +1,76 @@
 /* eslint-disable react-hooks/immutability --
    Same as Carry: the whole component writes to Reanimated shared values, which
    the React compiler reads as mutating something it was told to leave alone. */
+import * as Haptics from 'expo-haptics';
 import { useCallback, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 
 import { CREAM, NIGHT } from '@/theme';
 
-/** How far left it has to go before letting go means anything. */
-const FAR_ENOUGH = 90;
-/** and how far it can go at all — enough to read the word behind it */
-const STOP = 130;
+/** How much of the row has to leave the screen before letting go means anything. */
+const FRACTION = 0.5;
+/** and a floor under that, for a narrow row and for one not yet measured */
+const LEAST = 150;
+/** as far as the finger can carry it, when the width is still unknown */
+const ASSUMED_WIDTH = 500;
+
+/** The point of no return: half the row, never less than `LEAST`. */
+function gate(width: number) {
+  'worklet';
+  return Math.max(LEAST, width * FRACTION);
+}
 
 interface Props {
   children: ReactNode;
-  /** the swipe finished — ask, then remove */
+  /** the row went all the way across — the word is gone */
   onRemove: () => void;
   label?: string;
 }
 
 /**
- * Push a row aside to get rid of it.
+ * Push a row off the list to get rid of it.
  *
- * The row already has a **remove** button on it, and that button stays: a
- * gesture nobody can see is a feature nobody finds, and this is the screen a
- * grown-up visits twice a year. The swipe is here because it is what a thumb
- * tries first on a list on an iPad, and a list that ignores it feels dead.
+ * The row already has a **remove** button on it, and that button stays — with
+ * its question, because a single tap is easy to make by accident. The swipe is
+ * here because it is what a thumb tries first on a list, and a list that
+ * ignores it feels dead.
  *
- * Letting go does not delete anything. It asks — the same question the button
- * asks — and the row slides back while the question is on screen, so cancelling
- * leaves the list exactly as it was.
+ * The swipe asks nothing. It used to put the button's question on the screen,
+ * which made the gesture pointless: two deliberate acts to do what the button
+ * already did in two. Instead the distance *is* the question — the row has to
+ * be carried half way across before letting go removes anything, the red grows
+ * to full as it goes, and the phone taps your thumb at the point where letting
+ * go stops being harmless. Anything shorter springs back and costs nothing.
  */
 export function SwipeAway({ children, onRemove, label }: Props) {
   const x = useSharedValue(0);
+  const width = useSharedValue(0);
+  /* whether the finger is currently past the point of no return, so the tap on
+     the thumb happens once at the crossing rather than on every frame after it */
+  const past = useSharedValue(false);
+
+  const measure = useCallback(
+    (e: LayoutChangeEvent) => {
+      width.value = e.nativeEvent.layout.width;
+    },
+    [width],
+  );
 
   const home = useCallback(() => {
     x.value = withSpring(0, { damping: 18, stiffness: 220 });
   }, [x]);
 
-  const ask = useCallback(() => {
-    onRemove();
-    home();
-  }, [onRemove, home]);
+  const tick = useCallback(() => {
+    void Haptics.selectionAsync();
+  }, []);
 
   const swipe = Gesture.Pan()
     /* Sideways only, and only after the finger has committed to sideways: this
@@ -56,21 +79,36 @@ export function SwipeAway({ children, onRemove, label }: Props) {
     .activeOffsetX([-14, 14])
     .failOffsetY([-10, 10])
     .onUpdate((e) => {
-      x.value = Math.max(-STOP, Math.min(0, e.translationX));
+      const full = width.value || ASSUMED_WIDTH;
+      x.value = Math.max(-full, Math.min(0, e.translationX));
+
+      const now = -x.value >= gate(width.value);
+      if (now !== past.value) {
+        past.value = now;
+        runOnJS(tick)();
+      }
     })
-    .onEnd((e) => {
-      if (e.translationX < -FAR_ENOUGH) runOnJS(ask)();
-      else runOnJS(home)();
+    .onEnd(() => {
+      past.value = false;
+      if (-x.value >= gate(width.value)) {
+        /* Out of the way first, then gone: the list closing over an empty gap
+           is what says the word left, and it cannot say it if the row it is
+           closing over is still sitting there. */
+        const full = width.value || ASSUMED_WIDTH;
+        x.value = withTiming(-full, { duration: 140 }, (finished) => {
+          if (finished) runOnJS(onRemove)();
+        });
+      } else runOnJS(home)();
     });
 
   const sliding = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
-  // the word behind only appears once the row is genuinely on its way
+  // full red exactly where letting go starts to mean it
   const behind = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.max(0, -x.value - 20) / (FAR_ENOUGH - 20)),
+    opacity: Math.min(1, Math.max(0, -x.value - 20) / (gate(width.value) - 20)),
   }));
 
   return (
-    <View style={styles.track}>
+    <View style={styles.track} onLayout={measure}>
       <Animated.View style={[styles.behind, behind]} pointerEvents="none">
         <Text style={styles.behindText}>remove</Text>
       </Animated.View>

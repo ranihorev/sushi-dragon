@@ -68,9 +68,15 @@ export function useAnimatedReaction(
 
 /* Animation is time; a test has none. Each of these lands on its target value
    immediately, which is the right approximation: what is asserted is where a
-   thing ends up, never how it got there. */
-export const withSpring = <T,>(to: T, _cfg?: unknown, done?: () => void) => (done?.(), to);
-export const withTiming = <T,>(to: T, _cfg?: unknown, done?: () => void) => (done?.(), to);
+   thing ends up, never how it got there. The callback is told the animation
+   finished, as the real one is — code that only acts on a finished animation
+   has to be able to act here. */
+export const withSpring = <T,>(to: T, _cfg?: unknown, done?: (ok: boolean) => void) => (
+  done?.(true), to
+);
+export const withTiming = <T,>(to: T, _cfg?: unknown, done?: (ok: boolean) => void) => (
+  done?.(true), to
+);
 export const withDelay = <T,>(_ms: number, to: T) => to;
 export const withSequence = <T,>(...steps: T[]) => steps[steps.length - 1];
 /** A loop, seen from outside time: wherever one pass of it leaves the value. */

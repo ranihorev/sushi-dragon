@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_FAMILY_WORDS, CONFUSABLE, distractors, familyOf, relatives } from './families';
+import {
+  ALL_FAMILY_WORDS,
+  CONFUSABLE,
+  distractors,
+  familyOf,
+  nearMisses,
+  relatives,
+} from './families';
 import { STARTER_WORDS } from './words';
 import { onsetRime } from './chunk';
 
@@ -79,10 +86,56 @@ describe('distractors', () => {
     expect(distractors('mother', ['moth', 'cup'], 1)).toEqual(['moth']);
   });
 
+  it('makes a wrong answer up rather than serve one he can reject on sight', () => {
+    /* `pizza` has no family and nothing listed beside it, so the counter used to
+       fill with whatever else was in his dictionary — a word of another length
+       starting with another letter, which is a round he wins with his eyes
+       shut. */
+    const [wrong] = distractors('pizza', ['cup'], 1, 1);
+    expect(wrong).not.toBe('cup');
+    expect(nearMisses('pizza')).toContain(wrong);
+  });
+
+  it('still prefers a real neighbour, which he will meet in a book', () => {
+    // rejecting `noght` is decoding practice; reading `light` is that and a word
+    const [wrong] = distractors('night', ['light'], 1, 1);
+    expect(relatives('night')).toContain(wrong);
+  });
+
+  it('does not ask a beginner to turn down a word that does not exist', () => {
+    /* Two hard things at once: this word, and the fact that letters have to be
+       read even when nothing about the shape is familiar. */
+    expect(distractors('pizza', ['cup'], 1, 0.25)).toEqual(['cup']);
+  });
+
+  it('never fills a whole counter with things that are not words', () => {
+    // one wrong answer he cannot know, not a plate of gibberish
+    const wrong = distractors('pizza', ['cup', 'dog'], 2, 1);
+    expect(wrong.filter((w) => nearMisses('pizza').includes(w))).toHaveLength(1);
+  });
+
   it('puts a word he shares a family with ahead of both', () => {
     /* `net` against `get` is not softer than `net` against `ten` — the first
        letter is the whole difference, and he has to read it. */
     expect(distractors('net', ['ten', 'get'], 1, 1)).toEqual(['get']);
+  });
+});
+
+describe('nearMisses', () => {
+  it('changes one vowel and leaves everything else alone', () => {
+    expect(nearMisses('cat')).toContain('cot');
+    expect(nearMisses('cat')).not.toContain('cat');
+    for (const near of nearMisses('cat')) expect(near).toHaveLength(3);
+  });
+
+  it('swaps y out but never in', () => {
+    // `me` is a word he has to tell from `my`; `cyt` is not English at all
+    expect(nearMisses('my')).toContain('me');
+    for (const near of nearMisses('cat')) expect(near).not.toContain('y');
+  });
+
+  it('has nothing to say about a word with no vowel in it', () => {
+    expect(nearMisses('shh')).toEqual([]);
   });
 });
 

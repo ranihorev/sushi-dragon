@@ -13,6 +13,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,6 +26,7 @@ import { leave } from '@/leaving';
 import * as store from '@/game/storage';
 import { family, makeWord, reseam, type Word } from '@/game/words';
 import { relatives } from '@/game/families';
+import { pieceWidth, sushiCap } from '@/fitting';
 import { CREAM, FIRE, LANTERN, NIGHT, WASABI } from '@/theme';
 
 /**
@@ -49,6 +51,7 @@ export default function AddWordScreen() {
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const state = useAudioRecorderState(recorder);
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     void (async () => {
@@ -159,9 +162,17 @@ export default function AddWordScreen() {
             <Text style={styles.label}>2 · How it gets cut up — tap to move a seam</Text>
             <SeamEditor text={word.text} chunks={word.chunks} onChange={setChunks} />
 
+            {/* Small enough to fit the phone it is being typed on: this is the
+                one screen a grown-up uses standing up in a dark bedroom, and a
+                four-piece word drawn at the iPad's size runs off the side of
+                it. */}
             <Text style={styles.label}>On the counter it looks like this</Text>
             <View style={styles.preview}>
-              <Sushi chunks={word.chunks} tricky={word.tricky} scale={0.7} />
+              <Sushi
+                chunks={word.chunks}
+                tricky={word.tricky}
+                scale={Math.min(0.7, sushiCap(width - 44, pieceWidth(word.chunks)))}
+              />
             </View>
 
             {word.tricky && (

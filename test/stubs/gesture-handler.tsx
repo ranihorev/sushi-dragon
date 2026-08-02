@@ -24,15 +24,30 @@ export interface Recorded {
 }
 
 let nextId = 0;
-let live = new Map<number, Recorded[]>();
+let drawn = 0;
+let live = new Map<number, { at: number; parts: Recorded[] }>();
 
 export function resetGestures() {
   live = new Map();
   nextId = 0;
+  drawn = 0;
 }
 
-/** Every gesture on screen right now, in the order its detector mounted. */
-export const gestures = () => [...live.values()].flat();
+/**
+ * Every gesture on screen right now, in the order it is drawn.
+ *
+ * Drawn order and not mounted order, which are the same thing until something
+ * comes back: a slice taken off the plate is a detector that unmounted and
+ * mounted again, and by the order it mounted it now sits behind pieces that
+ * have been on the counter the whole time. A test that looked up the third
+ * piece from the left then drove the second one — silently, and only when the
+ * slices happened to be dealt in that order.
+ *
+ * So each detector says where it was drawn as it registers, which it does on
+ * every render, and the number it gave last is the one that counts.
+ */
+export const gestures = () =>
+  [...live.values()].sort((a, b) => a.at - b.at).flatMap((entry) => entry.parts);
 
 const CHAINABLE = [
   'enabled',
@@ -82,7 +97,7 @@ export function GestureDetector({ gesture, children }: { gesture: unknown; child
   const id = useRef<number>(null);
   if (id.current === null) id.current = nextId++;
   // re-registered on every render, so the handlers are always this render's
-  live.set(id.current, partsOf(gesture));
+  live.set(id.current, { at: drawn++, parts: partsOf(gesture) });
 
   useEffect(() => {
     const mine = id.current!;

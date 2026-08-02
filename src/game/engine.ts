@@ -8,7 +8,7 @@
  * they stop sticking.
  */
 
-import { distractors } from './families';
+import { distractors, nearMisses } from './families';
 import type { DragonProfile } from './progress';
 import { dueScore, grip, statFor } from './progress';
 import type { Word } from './words';
@@ -99,7 +99,9 @@ export function buildRound(
   }
 
   if (kind === 'order') {
-    return { kind, word, options: [], slices: jumble(word.chunks, rng) };
+    const hold = grip(statFor(profile, word.text));
+    const spare = hold >= DECOY_FROM ? decoy(word.chunks, rng) : null;
+    return { kind, word, options: [], slices: jumble(word.chunks, spare, rng) };
   }
 
   return { kind, word, options: [], slices: [] };
@@ -114,19 +116,59 @@ const asWord = (text: string, like: Word): Word => ({
 });
 
 /**
+ * How much hold a word needs before a piece that is not part of it appears
+ * among its slices.
+ *
+ * Not on the first go. A word he has just met arrives cut into syllables, and
+ * that cut is the whole lesson of the round: `drag` and `on`, two things to
+ * hold in your head instead of six. Adding a piece that belongs to no word at
+ * all, in the same breath, teaches him nothing about `dragon`.
+ *
+ * One correct round later there is something to test, and from then on the
+ * counter is not to be trusted.
+ */
+const DECOY_FROM = 0.25;
+
+/**
+ * A slice that does not belong, made out of one that does.
+ *
+ * A two-piece roll with exactly two pieces on the counter is not a reading
+ * round. There is one thing to decide, he has a one-in-two chance of being
+ * right without looking, and the second piece is then free. Put `dreg` on the
+ * counter beside `drag` and `on` and there is no arrangement to stumble into:
+ * the only way through is to read the pieces.
+ *
+ * Made by changing a vowel, because that is where his errors are, and because
+ * a piece one letter away from a real one cannot be rejected on shape. It is
+ * never a piece the word already has, so nothing on the counter is ambiguous.
+ */
+export function decoy(chunks: string[], rng: Rng): string | null {
+  const taken = new Set(chunks);
+  const made = [...new Set(chunks.flatMap(nearMisses))].filter((piece) => !taken.has(piece));
+  return made.length ? made[Math.floor(rng() * made.length)] : null;
+}
+
+/**
  * Jumble the slices, and never hand them back already in order.
  *
  * A roll that arrives correct is a round he wins by touching nothing, which
- * teaches him that not looking is sometimes rewarded.
+ * teaches him that not looking is sometimes rewarded. With a decoy on the
+ * counter the same trap is one piece longer: the pieces he needs, in order, at
+ * the front, and the spare one left over at the end.
  */
-function jumble(chunks: string[], rng: Rng): string[] {
-  if (chunks.length < 2) return [...chunks];
+function jumble(chunks: string[], spare: string | null, rng: Rng): string[] {
+  const pieces = spare ? [...chunks, spare] : [...chunks];
+  if (pieces.length < 2) return pieces;
   for (let attempt = 0; attempt < 8; attempt++) {
-    const out = shuffle(chunks, rng);
-    if (out.join('') !== chunks.join('')) return out;
+    const out = shuffle(pieces, rng);
+    if (!opens(out, chunks)) return out;
   }
-  return [...chunks].reverse();
+  return pieces.reverse();
 }
+
+/** Do the pieces, taken left to right off the counter, already spell the word? */
+const opens = (pieces: string[], chunks: string[]) =>
+  pieces.slice(0, chunks.length).join('') === chunks.join('');
 
 /**
  * Choose the words for one meal.

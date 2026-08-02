@@ -1,8 +1,16 @@
 import * as Haptics from 'expo-haptics';
 import { Link, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  LayoutChangeEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Bob } from '@/components/Bob';
 import { Carry } from '@/components/Carry';
@@ -14,10 +22,18 @@ import { carrierFor, greetingFor, READY, wholeQuestion } from '@/game/asking';
 import * as audio from '@/game/audio';
 import * as cloud from '@/game/cloud';
 import { isCorrectPick, planMeal, type Round, type RoundKind } from '@/game/engine';
-import { hoard, noteSession, recordPick, recordRead, type Verdict } from '@/game/progress';
+import {
+  hoard,
+  noteSession,
+  recordMeet,
+  recordPick,
+  recordRead,
+  type Verdict,
+} from '@/game/progress';
 import * as store from '@/game/storage';
 import { phraseClip, wordClip } from '@/game/voices';
 import type { Word } from '@/game/words';
+import { counterDepth, fitting, pieceWidth, sushiCap } from '@/fitting';
 import { CREAM, LANTERN, NIGHT, RICE, WASABI, WOOD, WOOD_DARK } from '@/theme';
 
 /* The two noises the game makes that are not words: a bite as the dragon takes
@@ -37,6 +53,9 @@ const RETRY_GAP_MS = 500;
 const BREATH_MS = 120;
 /** long enough to watch a piece disappear into a dragon */
 const SWALLOW_MS = 340;
+
+/** the padding under the stage, which a measured stage counts and cannot hold a dragon in */
+const STAGE_FOOT = 8;
 
 /**
  * The game, and the only screen the app opens on.
@@ -93,6 +112,31 @@ export default function PlayScreen() {
   const [dropLine, setDropLine] = useState(320);
   /** bottom of the plate — a piece let go above this line goes onto the plate */
   const [plateLine, setPlateLine] = useState(0);
+
+  /**
+   * The screen the game has actually been given.
+   *
+   * The window less the notch and the home bar, because `SafeAreaView` hands
+   * the same edges back and a phone on its side keeps nearly an inch of its
+   * width in them. Read every render: this is a game that can be turned over
+   * mid-meal, and everything below is drawn from it.
+   */
+  const { width, height } = useWindowDimensions();
+  const inset = useSafeAreaInsets();
+  const room = {
+    width: width - inset.left - inset.right,
+    height: height - inset.top - inset.bottom,
+  };
+  const fit = fitting(room);
+
+  /* The dragon's half of the screen, and how much of it the writing under the
+     animal has taken. What is left is the dragon, which is the only thing here
+     that can be any size at all — the line telling him what to do is however
+     tall the sentence is, and the counter has to hold sushi. Both are measured
+     rather than guessed, because a prompt is a paragraph on a narrow screen
+     and one line on a wide one. */
+  const [stageRoom, setStageRoom] = useState(0);
+  const [sayRoom, setSayRoom] = useState(0);
 
   /* What the focus effect below needs to know, without it having to re-run
      every time one of them changes. */
@@ -383,10 +427,12 @@ export default function PlayScreen() {
         return;
       }
 
+      /* Met, and nothing more. This used to record a correct answer, which is
+         a mark for a question nobody asked him — see `recordMeet`. */
       if (round.kind === 'meet') {
         void audio
           .speak([audio.sound(MUNCH)])
-          .then(() => finishRound((p) => recordPick(p, round.word.text, true)));
+          .then(() => finishRound((p) => recordMeet(p, round.word.text)));
         return;
       }
 
@@ -408,13 +454,37 @@ export default function PlayScreen() {
     if (round && round.kind !== 'read') void say(round.word);
   }, [round, say]);
 
+  /**
+   * A piece going onto the plate, and whether it belonged there.
+   *
+   * The round was scored as correct however it was solved, so a child who
+   * shuffled the pieces about until the word appeared — and there are only two
+   * of them in most rolls — got the same mark as one who read them. Now the
+   * first piece that goes in the wrong slot is remembered, the same way a wrong
+   * pick is, and the round is marked on it.
+   *
+   * The piece still lands. Nothing is refused and nothing buzzes: he can see
+   * what he has made, and take it back off. The score is simply no longer
+   * pretending that took no attempts.
+   */
   const place = useCallback(
     (index: number) => {
-      if (!round || round.kind !== 'order') return;
+      if (!round || round.kind !== 'order' || plate.includes(index)) return;
+      /* A full plate takes nothing more. It could not happen while the counter
+         held exactly the pieces of the word — the last one emptied it — and it
+         can now: a spare piece is still sitting there when every slot is
+         taken, and it used to go onto a plate that had nowhere to draw it. */
+      if (plate.length >= round.word.chunks.length) return;
       void Haptics.selectionAsync();
+
+      if (round.slices[index] !== round.word.chunks[plate.length]) {
+        setMissed(true);
+        setMood('puzzled');
+        after(900, () => setMood('idle'));
+      }
       setPlate((p) => (p.includes(index) ? p : [...p, index]));
     },
-    [round],
+    [after, plate, round],
   );
 
   /** Taking the last slice back off the plate — a wrong order must be undoable. */
@@ -469,9 +539,43 @@ export default function PlayScreen() {
   /* The plate, worked out before the screen is drawn, because the dragon has
      something to say the instant the last piece lands in the right place. */
   const slices = round?.kind === 'order' ? round.slices : [];
+  /* What the plate holds when it is full, which is no longer what the counter
+     holds: one of the pieces out there may not belong to the word at all. */
+  const wanted = round?.kind === 'order' ? round.word.chunks : [];
   const assembled = plate.map((i) => slices[i]).join('');
-  const rollFull = round?.kind === 'order' && plate.length === slices.length;
+  const rollFull = round?.kind === 'order' && plate.length === wanted.length;
   const rollReady = rollFull && assembled === round.word.text;
+
+  /**
+   * How big the food is, and how much of the screen the counter keeps.
+   *
+   * Worked out from the round rather than from what is still uneaten, so that
+   * nothing on the screen changes size while he is playing it. A counter of
+   * three has always been drawn smaller than a counter of one; the screen can
+   * take that further down but never back up.
+   */
+  const onCounter = round
+    ? round.kind === 'order'
+      ? slices.map((slice) => pieceWidth([slice]))
+      : optionsFor(round).map((w) => pieceWidth(w.chunks))
+    : [];
+  const asked = round?.kind === 'order' ? 0.85 : onCounter.length > 2 ? 0.8 : 1;
+  const sushi = Math.min(asked, sushiCap(room.width, Math.max(...onCounter, 0)));
+  const shelf = counterDepth(room.width, onCounter, sushi);
+
+  /* The whole word, once its pieces are in order, is one thing and is carried
+     as one thing — so it is measured as one thing and not as the widest of its
+     parts. */
+  const roll = Math.min(0.9, sushiCap(room.width, pieceWidth(wanted)));
+
+  /* Whatever the stage has left after the question, up to the ceiling for this
+     screen. Until the two have been measured, the ceiling is the answer: on the
+     iPad it is the answer for good, and it is close enough everywhere else that
+     the correction lands in the same frame the child sees. */
+  const dragonSize =
+    stageRoom && sayRoom
+      ? Math.max(100, Math.min(fit.dragon, stageRoom - sayRoom - STAGE_FOOT))
+      : fit.dragon;
 
   useEffect(() => {
     if (rollReady) cheerReady();
@@ -480,7 +584,10 @@ export default function PlayScreen() {
   const onStageLayout = (e: LayoutChangeEvent) => {
     const { y, height } = e.nativeEvent.layout;
     setDropLine(y + height);
+    setStageRoom(height);
   };
+
+  const onSayLayout = (e: LayoutChangeEvent) => setSayRoom(e.nativeEvent.layout.height);
 
   /* The same idea one shelf lower: the plate is where the pieces of a long word
      go, so letting go anywhere at or above it counts as putting one down. */
@@ -489,7 +596,7 @@ export default function PlayScreen() {
     setPlateLine(y + height);
   };
 
-  if (!profile.introSeen) return <HowItWorks onStart={start} />;
+  if (!profile.introSeen) return <HowItWorks onStart={start} size={fit.intro} />;
 
   if (resting || !round) {
     return (
@@ -501,14 +608,14 @@ export default function PlayScreen() {
           accessibilityRole="button"
           accessibilityLabel="feed the dragon"
         >
-          <Dragon fullness={1} mood="happy" size={300} />
+          <Dragon fullness={1} mood="happy" size={fit.door} />
         </Pressable>
         {/* The one instruction on this screen, because a dragon sitting there
             is not obviously a button, and nothing else here is either. */}
         <Text style={styles.doorHint}>
           {finished ? 'Tap the dragon to feed it again' : 'Tap the dragon to start'}
         </Text>
-        <Hoard words={hoarded} onSay={(w) => void say(w)} />
+        <Hoard words={hoarded} scale={fit.hoard} onSay={(w) => void say(w)} />
         <GrownUps />
       </SafeAreaView>
     );
@@ -531,55 +638,62 @@ export default function PlayScreen() {
             mood={rollReady && mood === 'idle' ? 'happy' : mood}
             fullness={fullness}
             chomp={bites}
-            size={320}
+            size={dragonSize}
           />
         </View>
 
-        {/* What to do, in one line, on every round.
-          Without it the game is a dragon, some sushi, and no clue: the rules
-          were only ever in the spoken prompt, which says the word and not what
-          to do with it — and says nothing at all in a reading round. */}
-        <Text style={styles.prompt}>
-          {rollReady ? 'Well done — that is the word!' : PROMPT[round.kind]}
-        </Text>
+        {/* Everything the dragon has to say, measured as one block, because what
+            is left of the stage underneath it is the animal. */}
+        <View onLayout={onSayLayout}>
+          {/* What to do, in one line, on every round.
+            Without it the game is a dragon, some sushi, and no clue: the rules
+            were only ever in the spoken prompt, which says the word and not what
+            to do with it — and says nothing at all in a reading round. */}
+          <Text style={[styles.prompt, fit.snug && styles.promptSnug]}>
+            {rollReady ? 'Well done — that is the word!' : PROMPT[round.kind]}
+          </Text>
 
-        {/* What the green dab on a letter means.
-            The mark has been there since the first version and the explanation
-            for it has been sitting in the word list, unread, since the same day:
-            a mark nobody can read is decoration, and this one is the single most
-            useful thing the game knows about the word. It appears while the word
-            is being introduced, which is the moment it is worth saying — and now
-            nowhere else, because everywhere else it was a green dab on the only
-            sushi on the counter that had one. */}
-        {round.kind === 'meet' && round.word.tricky && (
-          <Text style={styles.lying}>{lyingBit(round.word)}</Text>
-        )}
+          {/* What the green dab on a letter means.
+              The mark has been there since the first version and the explanation
+              for it has been sitting in the word list, unread, since the same day:
+              a mark nobody can read is decoration, and this one is the single most
+              useful thing the game knows about the word. It appears while the word
+              is being introduced, which is the moment it is worth saying — and now
+              nowhere else, because everywhere else it was a green dab on the only
+              sushi on the counter that had one. */}
+          {round.kind === 'meet' && round.word.tricky && (
+            <Text style={styles.lying}>{lyingBit(round.word)}</Text>
+          )}
 
-        {/* Say it again, under the question rather than beside it: beside it,
-            a button the width of a word pushed the sentence off the middle of
-            the screen and the whole column stopped lining up under the dragon.
-            It used to be a 🔊 in the far corner by the food — system grey, on a
-            night-blue screen, nowhere near the thing it acts on. */}
-        {round.kind !== 'read' && (
-          <View style={styles.againRow}>
-            <SayAgain onPress={again} />
+          {/* Say it again, under the question rather than beside it: beside it,
+              a button the width of a word pushed the sentence off the middle of
+              the screen and the whole column stopped lining up under the dragon.
+              It used to be a 🔊 in the far corner by the food — system grey, on a
+              night-blue screen, nowhere near the thing it acts on. */}
+          {round.kind !== 'read' && (
+            <View style={[styles.againRow, fit.snug && styles.againRowSnug]}>
+              <SayAgain onPress={again} />
+            </View>
+          )}
+
+          {/* How much of the meal is left, as plates. He cannot read "round 3 of
+              6", and a meal with no visible end is one he has no reason to
+              finish. */}
+          <View style={[styles.progress, fit.snug && styles.progressSnug]}>
+            {meal.map((_, i) => (
+              <View key={i} style={[styles.plate, i < at && styles.plateEaten]} />
+            ))}
           </View>
-        )}
-
-        {/* How much of the meal is left, as plates. He cannot read "round 3 of
-            6", and a meal with no visible end is one he has no reason to
-            finish. */}
-        <View style={styles.progress}>
-          {meal.map((_, i) => (
-            <View key={i} style={[styles.plate, i < at && styles.plateEaten]} />
-          ))}
         </View>
       </View>
 
       {/* The plate. Slots are drawn empty so it is obvious something goes in
           them, and how many — a blank space told him nothing. */}
       {round.kind === 'order' && (
-        <View style={styles.plateRow} onLayout={onPlateLayout}>
+        <View
+          style={[styles.plateRow, { minHeight: 92 * sushi }]}
+          onLayout={onPlateLayout}
+        >
           {rollReady ? (
             <Carry
               label={`the roll ${round.word.text}`}
@@ -593,7 +707,7 @@ export default function PlayScreen() {
               {/* Rocking, until he takes it. The dragon says what to do once;
                   this goes on saying it. */}
               <Bob on={!going}>
-                <Sushi chunks={plate.map((i) => slices[i])} scale={0.9} />
+                <Sushi chunks={plate.map((i) => slices[i])} scale={roll} />
               </Bob>
             </Carry>
           ) : (
@@ -603,14 +717,22 @@ export default function PlayScreen() {
               accessibilityRole="button"
               accessibilityLabel="the plate"
             >
-              {slices.map((_, slot) => (
+              {/* One slot per piece of the word — not per piece on the
+                  counter, which can now hold one that goes nowhere. */}
+              {wanted.map((_, slot) => (
                 <View
                   key={slot}
                   testID={plate[slot] === undefined ? 'slot-empty' : 'slot-full'}
-                  style={[styles.slot, plate[slot] !== undefined && styles.slotFull]}
+                  style={[
+                    styles.slot,
+                    { minWidth: 86 * sushi, height: 68 * sushi },
+                    plate[slot] !== undefined && styles.slotFull,
+                  ]}
                 >
                   {plate[slot] !== undefined && (
-                    <Text style={styles.slotText}>{slices[plate[slot]]}</Text>
+                    <Text style={[styles.slotText, { fontSize: 34 * sushi }]}>
+                      {slices[plate[slot]]}
+                    </Text>
                   )}
                 </View>
               ))}
@@ -623,7 +745,13 @@ export default function PlayScreen() {
         </View>
       )}
 
-      <View style={styles.counterRow}>
+      <View
+        style={[
+          styles.counterRow,
+          { minHeight: shelf, gap: 22 * sushi },
+          fit.snug && styles.counterRowSnug,
+        ]}
+      >
         {round.kind === 'order'
           ? slices.map((text, index) =>
               plate.includes(index) ? null : (
@@ -641,7 +769,7 @@ export default function PlayScreen() {
                   // until the plate has been measured, the dragon's line will do
                   dropAboveY={plateLine || dropLine}
                 >
-                  <Sushi chunks={[text]} scale={0.85} />
+                  <Sushi chunks={[text]} scale={sushi} />
                 </Carry>
               ),
             )
@@ -665,7 +793,7 @@ export default function PlayScreen() {
                   <Sushi
                     chunks={word.chunks}
                     tricky={round.kind === 'meet' ? word.tricky : null}
-                    scale={optionsFor(round).length > 2 ? 0.8 : 1}
+                    scale={sushi}
                   />
                 </Carry>
               ))}
@@ -703,7 +831,15 @@ export default function PlayScreen() {
  * Tapping one says it back in your voice, which is the only reason a child who
  * cannot read the label would ever touch it.
  */
-function Hoard({ words, onSay }: { words: Word[]; onSay: (word: Word) => void }) {
+function Hoard({
+  words,
+  scale,
+  onSay,
+}: {
+  words: Word[];
+  scale: number;
+  onSay: (word: Word) => void;
+}) {
   if (!words.length) return null;
 
   return (
@@ -723,7 +859,7 @@ function Hoard({ words, onSay }: { words: Word[]; onSay: (word: Word) => void })
             accessibilityRole="button"
             accessibilityLabel={`his word ${word.text}`}
           >
-            <Sushi chunks={word.chunks} scale={0.42} />
+            <Sushi chunks={word.chunks} scale={scale} />
           </Pressable>
         ))}
       </ScrollView>
@@ -775,10 +911,10 @@ const PROMPT: Record<RoundKind, string> = {
  * who is being hurried. Everything the five lines said is still written down
  * under *How the game works* on the grown-ups' side, where there is time.
  */
-function HowItWorks({ onStart }: { onStart: () => void }) {
+function HowItWorks({ onStart, size }: { onStart: () => void; size: number }) {
   return (
     <SafeAreaView style={[styles.screen, styles.middle, styles.intro]}>
-      <Dragon mood="happy" size={220} />
+      <Dragon mood="happy" size={size} />
       <Text style={styles.introTitle}>Sushi Dragon</Text>
       <Text style={styles.introLine}>The dragon asks for a word.</Text>
       <Text style={styles.introLine}>Drag the right sushi into its mouth.</Text>
@@ -822,7 +958,11 @@ const styles = StyleSheet.create({
   doorTitle: { color: CREAM, fontSize: 30, fontWeight: '800', marginBottom: 6 },
   doorHint: { color: LANTERN, opacity: 0.75, fontSize: 16, marginTop: 14 },
   door: { alignItems: 'center' },
-  hoard: { position: 'absolute', left: 0, right: 0, bottom: 44, gap: 8 },
+  /* Pushed to the bottom rather than pinned to it. Pinned, it was drawn over
+     whatever else was on the screen — which was nothing on an iPad and was the
+     dragon's feet on a phone, where the two of them together are taller than
+     the screen is. Everything above it is now centred in what is left. */
+  hoard: { alignSelf: 'stretch', marginTop: 'auto', paddingBottom: 40, gap: 8 },
   hoardTitle: {
     color: CREAM,
     opacity: 0.45,
@@ -867,6 +1007,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 10,
   },
+  /* On a phone lying on its side the game is a hand's width deep in total, and
+     the padding is the cheapest thing in it to spend. */
+  promptSnug: { fontSize: 16, paddingTop: 4 },
   lying: {
     color: WASABI,
     fontSize: 15,
@@ -875,6 +1018,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   progress: { flexDirection: 'row', justifyContent: 'center', gap: 7, paddingTop: 10 },
+  progressSnug: { paddingTop: 4 },
   plate: {
     width: 22,
     height: 6,
@@ -884,14 +1028,12 @@ const styles = StyleSheet.create({
   },
   plateEaten: { backgroundColor: LANTERN, opacity: 0.9 },
 
-  plateRow: { alignItems: 'center', gap: 6, minHeight: 92, justifyContent: 'center' },
+  plateRow: { alignItems: 'center', gap: 6, justifyContent: 'center' },
   slots: { flexDirection: 'row', gap: 8 },
   /* Drawn in the rice colour, not in the seam colour it used to use: a seam is
      a dark line meant to be seen against rice, and on a night-blue background
      it was a slot nobody could see they were meant to fill. */
   slot: {
-    minWidth: 86,
-    height: 68,
     borderRadius: 14,
     borderWidth: 3,
     borderColor: 'rgba(255,248,231,0.4)',
@@ -902,30 +1044,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   slotFull: { backgroundColor: RICE, borderStyle: 'solid', borderColor: RICE },
-  slotText: { fontSize: 34, fontWeight: '700', color: '#2b2118' },
+  slotText: { fontWeight: '700', color: '#2b2118' },
   hint: { color: CREAM, opacity: 0.45, fontSize: 13 },
   /* Brighter than a hint, because this one is not a note to the grown-up: it is
      the second half of the round, and it was not on the screen at all. */
   readyHint: { color: LANTERN, fontSize: 15, fontWeight: '600' },
 
-  /* The height is fixed so that the counter does not collapse when the last
-     piece is eaten. It used to, and the dragon — centred in whatever was left
-     over — dropped half an inch at the exact moment the sushi disappeared,
-     which looked like the animal flinching. */
+  /* A floor under the height, so that the counter does not collapse when the
+     last piece is eaten. It used to, and the dragon — centred in whatever was
+     left over — dropped half an inch at the exact moment the sushi
+     disappeared, which looked like the animal flinching. The floor was 136,
+     which is a whole phone-in-landscape's worth of screen; it is now however
+     deep the food actually laid out on it is. */
   counterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'flex-end',
-    gap: 22,
     paddingHorizontal: 24,
     marginTop: 'auto',
     paddingBottom: 16,
-    minHeight: 136,
   },
+  counterRowSnug: { paddingBottom: 6, paddingHorizontal: 12 },
   counter: { height: 16, backgroundColor: WOOD, borderTopWidth: 4, borderTopColor: WOOD_DARK },
 
   againRow: { alignItems: 'center', paddingTop: 12 },
+  againRowSnug: { paddingTop: 4 },
 
   check: {
     position: 'absolute',

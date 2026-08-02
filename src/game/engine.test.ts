@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRound, chooseWords, isOrdered, kindFor, planMeal } from './engine';
-import { blankProfile, recordRead, type DragonProfile } from './progress';
+import { nearMisses } from './families';
+import { blankProfile, recordPick, recordRead, type DragonProfile } from './progress';
 import { makeWord, type Word } from './words';
 
 const dict = (...texts: string[]) => texts.map((t) => makeWord(t));
@@ -91,6 +92,46 @@ describe('buildRound', () => {
     for (let i = 0; i < 40; i++) {
       const round = buildRound(blankProfile(), word, [], 'order');
       expect(isOrdered(round, round.slices)).toBe(false);
+    }
+  });
+
+  it('lays a piece that belongs to no word beside the ones that do', () => {
+    /* Two pieces and two slots is one decision, and he is right half the time
+       without reading either of them. A third piece that fits nowhere cannot be
+       arrived at by shuffling. */
+    const p = recordPick(blankProfile(), 'dragon', true);
+    const round = buildRound(p, makeWord('dragon'), [], 'order', fixedRng());
+
+    expect(round.slices).toHaveLength(3);
+    expect(round.slices).toContain('drag');
+    expect(round.slices).toContain('on');
+  });
+
+  it('serves a word he has only just met with nothing but its own pieces', () => {
+    /* The cut is the lesson in that round — `drag` and `on`, two things to hold
+       instead of six. A piece belonging to no word teaches nothing about it. */
+    const round = buildRound(blankProfile(), makeWord('dragon'), [], 'order', fixedRng());
+    expect(round.slices).toHaveLength(2);
+  });
+
+  it('makes the spare piece out of a real one, so shape cannot reject it', () => {
+    const p = recordPick(blankProfile(), 'dragon', true);
+    const near = [...nearMisses('drag'), ...nearMisses('on')];
+
+    for (let i = 0; i < 40; i++) {
+      const round = buildRound(p, makeWord('dragon'), [], 'order');
+      const spare = round.slices.filter((s) => s !== 'drag' && s !== 'on');
+      expect(spare).toHaveLength(1);
+      expect(near).toContain(spare[0]);
+    }
+  });
+
+  it('never lets the pieces be taken left to right off the counter', () => {
+    // the same free round one piece longer: the word up front, the spare last
+    const p = recordPick(blankProfile(), 'dragon', true);
+    for (let i = 0; i < 40; i++) {
+      const round = buildRound(p, makeWord('dragon'), [], 'order');
+      expect(round.slices.slice(0, 2).join('')).not.toBe('dragon');
     }
   });
 });

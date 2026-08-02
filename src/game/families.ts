@@ -194,7 +194,7 @@ export function distractors(
   word: string,
   pool: string[],
   count: number,
-  /** how well he holds this word, 0..1 — see `SCRAMBLED` */
+  /** how well he holds this word, 0..1 — see `SCRAMBLED` and `nearMisses` */
   hold = 1,
 ): string[] {
   const w = word.toLowerCase();
@@ -202,13 +202,87 @@ export function distractors(
     ...new Set([...relatives(w), ...confusable(w), ...pool.map((p) => p.toLowerCase())]),
   ].filter((o) => o !== w && o.length > 0);
 
-  const ranked = others
-    .map((o) => ({ o, r: rank(w, o) }))
-    .filter(({ r }) => r !== SCRAMBLED || hold >= 0.5)
+  const made =
+    hold >= HARD_FROM
+      ? nearMisses(w)
+          .filter((o) => !others.includes(o))
+          .slice(0, MADE_UP)
+      : [];
+
+  const ranked = [
+    ...others.map((o) => ({ o, r: rank(w, o) })),
+    ...made.map((o) => ({ o, r: MADE_UP_RANK })),
+  ]
+    .filter(({ r }) => r !== SCRAMBLED || hold >= HARD_FROM)
     .sort((a, b) => a.r - b.r || a.o.localeCompare(b.o));
 
   return ranked.slice(0, count).map((x) => x.o);
 }
+
+/**
+ * The same word with one vowel changed: `sushi` and `sashi`, `my` and `me`.
+ *
+ * Most of these are not words. That is the point of them. A word with a family
+ * gets four hard neighbours for nothing, but `sushi` has none, and the counter
+ * used to fill up with whatever else was in his dictionary — which by the
+ * ranking above is a filler, a wrong answer he can reject without reading a
+ * letter of it. Those rounds were free.
+ *
+ * A made-up neighbour cannot be free. There is no shape to go on, no length, no
+ * first letter, and nothing to remember, because the piece has never been on the
+ * counter before. Rejecting it is decoding and nothing else — which is why the
+ * phonics screening check at the end of Year 1 is half made-up words too.
+ *
+ * Whether the result happens to be real does not matter. `cat` gives `cot`,
+ * which is real, and `cot` is exactly the wrong answer this was reaching for.
+ *
+ * `y` is swapped out but never in: `my` gives `me`, and `cat` never gives `cyt`,
+ * which is not a thing an English reader has to be able to turn down.
+ */
+export function nearMisses(word: string): string[] {
+  const out = new Set<string>();
+  [...word].forEach((letter, i) => {
+    if (!SWAPPABLE.includes(letter)) return;
+    for (const vowel of VOWELS) {
+      if (vowel !== letter) out.add(word.slice(0, i) + vowel + word.slice(i + 1));
+    }
+  });
+  out.delete(word);
+  return [...out];
+}
+
+const VOWELS = 'aeiou';
+const SWAPPABLE = 'aeiouy';
+
+/**
+ * One made-up wrong answer per counter, at most.
+ *
+ * Three pieces, of which two are nothing, is a round he can win by finding the
+ * one thing on the counter that is a word — and a counter that is mostly
+ * gibberish stops being a plate of food. One is enough to make the other two
+ * worth reading.
+ */
+const MADE_UP = 1;
+
+/**
+ * Where a made-up word sits among the real ones: behind every class the table
+ * can name, ahead of both kinds of filler.
+ *
+ * A real near-miss is worth more when there is one. `night` against `light` is
+ * a word he will meet in a book tomorrow, and rejecting `noght` is not. This
+ * only takes the rounds that had nothing better to offer.
+ */
+const MADE_UP_RANK = 3.5;
+
+/**
+ * How much hold a word needs before its wrong answers can get properly nasty.
+ *
+ * The same bar for both of the hard classes, for the same reason: reading a
+ * word right to left, and turning down a word that does not exist, are both
+ * things he fails at while he is still learning the word — for reasons that
+ * have nothing to do with that word.
+ */
+const HARD_FROM = 0.5;
 
 /**
  * The same letters, in another order: `was` and `saw`, `net` and `ten`.

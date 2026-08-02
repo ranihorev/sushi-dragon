@@ -172,6 +172,24 @@ export function recordPick(p: DragonProfile, word: string, correct: boolean): Dr
 export const recordOrder = recordPick;
 
 /**
+ * He has just been shown a word for the first time.
+ *
+ * This counts as seen, and as nothing else. Seen is what moves the word off the
+ * `meet` round; the rest of the score is evidence, and being shown a word is
+ * not evidence about anything.
+ *
+ * It used to record a `got`, which handed every new word a quarter of a full
+ * window before he had been asked a single question about it. Four of those and
+ * a word he had met four times and never once read looked, to the meal planner,
+ * like a word he was halfway to owning.
+ */
+export function recordMeet(p: DragonProfile, word: string): DragonProfile {
+  const prev = statFor(p, word);
+  const stat = { ...prev, seen: prev.seen + 1, lastSeenAt: p.mealsCompleted };
+  return { ...p, stats: { ...p.stats, [word]: stat } };
+}
+
+/**
  * A word he owns — which requires having heard him say it.
  *
  * Picking a word out of a line-up eight times running is not proof he can read

@@ -6,6 +6,7 @@ import {
   hoard,
   isNew,
   isSolid,
+  recordMeet,
   recordPick,
   recordRead,
   statFor,
@@ -59,6 +60,26 @@ describe('recordRead', () => {
     let p = read('dragon', 3, 'not-yet');
     for (let i = 0; i < 6; i++) p = recordRead(p, 'dragon', 'got');
     expect(isSolid(p, 'dragon')).toBe(true);
+  });
+});
+
+describe('recordMeet', () => {
+  it('counts as seen, so the word is not introduced twice', () => {
+    expect(statFor(recordMeet(blankProfile(), 'dragon'), 'dragon').seen).toBe(1);
+  });
+
+  it('counts as nothing else, because nothing was asked', () => {
+    /* It used to record a `got`: a quarter of a full window handed to a word he
+       had been shown and never questioned about. */
+    const p = recordMeet(blankProfile(), 'dragon');
+    expect(grip(statFor(p, 'dragon'))).toBe(0);
+    expect(statFor(p, 'dragon').recent).toEqual([]);
+  });
+
+  it('leaves a word he has never answered outside the hoard', () => {
+    let p = blankProfile();
+    for (let i = 0; i < 4; i++) p = recordMeet(p, 'dragon');
+    expect(isSolid(p, 'dragon')).toBe(false);
   });
 });
 

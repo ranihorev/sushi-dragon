@@ -188,6 +188,36 @@ describe('putting a roll back together', () => {
     expect(screen.getByLabelText('the roll dragon')).toBeInTheDocument();
   });
 
+  /* The round used to be marked correct however it was arrived at. With two
+     pieces and two slots, a child who put them in either order and swapped
+     them if it looked wrong scored exactly what a child who read them scored —
+     and the shuffling is faster. */
+  it('does not mark a roll he shuffled into place as one he read', async () => {
+    render(<PlayScreen />);
+    tapPiece('piece on');
+    fireEvent.click(screen.getByLabelText('the plate'));
+    tapPiece('piece drag');
+    tapPiece('piece on');
+
+    act(() => void pan().dragTo(40));
+    await settle(2500);
+
+    const saved = saveProfile.mock.calls.at(-1)![0] as DragonProfile;
+    expect(saved.stats.dragon.recent.at(-1)).toBe('not-yet');
+  });
+
+  it('marks one he built in order the first time', async () => {
+    render(<PlayScreen />);
+    tapPiece('piece drag');
+    tapPiece('piece on');
+
+    act(() => void pan().dragTo(40));
+    await settle(2500);
+
+    const saved = saveProfile.mock.calls.at(-1)![0] as DragonProfile;
+    expect(saved.stats.dragon.recent.at(-1)).toBe('got');
+  });
+
   /* The round is two jobs and the second one was invisible: the pieces became a
      roll on the plate and nothing said it was now his to carry. */
   it('says out loud that it is finished and wants feeding', () => {

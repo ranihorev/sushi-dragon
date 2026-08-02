@@ -4,16 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Bob } from '@/components/Bob';
 import { Carry } from '@/components/Carry';
 import { Dragon, type Mood } from '@/components/Dragon';
 import { HomeButton } from '@/components/HomeButton';
+import { SayAgain } from '@/components/SayAgain';
 import { Sushi } from '@/components/Sushi';
+import { carrierFor, greetingFor, READY, wholeQuestion } from '@/game/asking';
 import * as audio from '@/game/audio';
 import { isCorrectPick, planMeal, type Round, type RoundKind } from '@/game/engine';
 import { hoard, noteSession, recordPick, recordRead, type Verdict } from '@/game/progress';
 import * as store from '@/game/storage';
+import { phraseClip, wordClip } from '@/game/voices';
 import type { Word } from '@/game/words';
-import { CREAM, LANTERN, NIGHT, RICE, SEAM, WASABI, WOOD, WOOD_DARK } from '@/theme';
+import { CREAM, LANTERN, NIGHT, RICE, WASABI, WOOD, WOOD_DARK } from '@/theme';
 
 /* The two noises the game makes that are not words: a bite as the dragon takes
    a piece, and two notes at the end of a meal. Everything else he hears is
@@ -28,7 +32,10 @@ import MUNCH from '../../assets/audio/munch.m4a';
 const ASK_LEAD_MS = 450;
 const ROUND_GAP_MS = 1400;
 const RETRY_GAP_MS = 500;
-const SEAR_MS = 900;
+/** between the dragon's question and the word on the end of it */
+const BREATH_MS = 120;
+/** long enough to watch a piece disappear into a dragon */
+const SWALLOW_MS = 340;
 
 /**
  * The game, and the only screen the app opens on.
@@ -61,15 +68,24 @@ export default function PlayScreen() {
   /** resting because the meal is over, rather than because he asked to stop */
   const [finished, setFinished] = useState(false);
   const round = meal[at];
+  /* How far into its habits the dragon is. The wording of the question rotates
+     with this, so it carries on across meals rather than restarting at the same
+     sentence every time it gets hungry again. */
+  const turn = at + profile.mealsCompleted;
 
   const [mood, setMood] = useState<Mood>('idle');
-  const [searing, setSearing] = useState(false);
+  /** bumped once per mouthful, to set the dragon gulping */
+  const [bites, setBites] = useState(0);
+  /** the piece on its way into the mouth — still drawn, no longer touchable */
+  const [going, setGoing] = useState('');
   const [eaten, setEaten] = useState<string[]>([]);
   const [plate, setPlate] = useState<number[]>([]);
   const [missed, setMissed] = useState(false);
   const [awaitingCheck, setAwaitingCheck] = useState(false);
   /** bottom of the dragon on screen — everything above it is the drop zone */
   const [dropLine, setDropLine] = useState(320);
+  /** bottom of the plate — a piece let go above this line goes onto the plate */
+  const [plateLine, setPlateLine] = useState(0);
 
   /* What the focus effect below needs to know, without it having to re-run
      every time one of them changes. */
@@ -78,6 +94,9 @@ export default function PlayScreen() {
 
   /** The word list the meal on screen was dealt from, to notice a new one. */
   const dealtFrom = useRef('');
+
+  /** Which round has already been marked and moved on from. */
+  const done = useRef('');
 
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -104,24 +123,35 @@ export default function PlayScreen() {
   /**
    * The dragon saying a word.
    *
-   * Your recording if there is one, and the iPad's own voice if there is not.
-   * It used to be the recording or nothing, which meant a brand new app could
-   * not ask him to listen to anything at all — every round fell back to reading
-   * a word off a card in silence, and the game arrived looking like a flashcard
-   * that had lost its instructions.
+   * Three voices, in order of how much they are worth to him. Yours, recorded
+   * on this iPad, wins outright. Failing that the dragon's own voice, recorded
+   * before the app was built — which covers the words it shipped with. Failing
+   * both, the iPad reads it, which is how a word a parent typed in last night
+   * gets said at all.
    */
-  const voiceOf = useCallback(
-    (word: Word) =>
-      store.hasVoice(word.text)
-        ? audio.sound(store.voiceFile(word.text).uri)
-        : audio.said(word.text),
-    [],
-  );
+  const voiceOf = useCallback((word: Word) => {
+    if (store.hasVoice(word.text)) return audio.sound(store.voiceFile(word.text).uri);
+    const clip = wordClip(word.text);
+    return clip ? audio.sound(clip) : audio.said(word.text);
+  }, []);
 
   const say = useCallback(
-    (word: Word, lead: number[] = []) => audio.speak([...lead, voiceOf(word)]),
+    (word: Word, lead: audio.Beat[] = []) => audio.speak([...lead, voiceOf(word)]),
     [voiceOf],
   );
+
+  /**
+   * Hello.
+   *
+   * The game used to open by demanding a word, which is a game that opened in
+   * the middle of itself. This is the one moment the dragon says something to
+   * him rather than about a word, and it costs a second and a half.
+   */
+  const hello = useCallback((): audio.Beat[] => {
+    const line = greetingFor(profileRef.current.mealsCompleted);
+    const clip = phraseClip(line);
+    return [clip ? audio.sound(clip) : audio.said(line), 380];
+  }, []);
 
   /** The dragon eating, and then telling him what he just fed it. */
   const swallow = useCallback(
@@ -132,48 +162,59 @@ export default function PlayScreen() {
   /**
    * The question, out loud.
    *
-   * With no recording the whole thing is one sentence in one voice, which is
-   * plainer than a bare word for a child who does not yet know what the game
-   * wants. Where you have recorded the word, your voice says it alone — the
-   * point of the recording is that it is yours, and a synthetic voice reading
-   * an instruction over the top of it spoils that.
+   * Two clips back to back — what the dragon wants, then the word — rather than
+   * one recording per phrase-and-word pair, which would be several hundred
+   * files that all have to be remade the day a line of dialogue changes.
+   *
+   * Whichever voice is about to say the word says the question too. A recorded
+   * phrase in front of a word the iPad is reading is two different people
+   * finishing each other's sentence, which is worse than either of them alone.
+   *
+   * Where you have recorded the word yourself, your voice says it and nothing
+   * else — the point of the recording is that it is yours.
    */
   const ask = useCallback(
-    (round: Round, lead: number[] = []) => {
-      if (store.hasVoice(round.word.text)) return say(round.word, lead);
-      const question =
-        round.kind === 'meet'
-          ? `A new word. This one says ${round.word.text}`
-          : round.kind === 'order'
-            ? `Build the word ${round.word.text}`
-            : `Which one says ${round.word.text}?`;
-      return audio.speak([...lead, audio.said(question)]);
+    (round: Round, lead: audio.Beat[] = []) => {
+      const voice = voiceOf(round.word);
+      const carrier = carrierFor(round.kind, turn);
+      if (!carrier || store.hasVoice(round.word.text)) return audio.speak([...lead, voice]);
+
+      // the iPad has no clips, so it reads the question and the word as one line
+      if ('say' in voice) {
+        return audio.speak([...lead, audio.said(wholeQuestion(carrier, round.word.text))]);
+      }
+
+      const phrase = phraseClip(carrier);
+      return audio.speak([
+        ...lead,
+        phrase ? audio.sound(phrase) : audio.said(carrier),
+        BREATH_MS,
+        voice,
+      ]);
     },
-    [say],
+    [turn, voiceOf],
   );
 
   useEffect(() => {
     if (!round || resting) return;
     setPlate([]);
     setEaten([]);
+    setGoing('');
     setMissed(false);
     setAwaitingCheck(false);
     setMood('idle');
 
-    if (round.kind === 'meet') {
-      setSearing(true);
-      after(SEAR_MS, () => {
-        setSearing(false);
-        void ask(round);
-      });
-      return;
-    }
+    // the dragon greets whoever has just sat down, once per meal
+    const lead = at === 0 ? hello() : [];
 
     /* A reading round arrives in silence on purpose: nothing tells him the
        word until he has committed to it. */
-    if (round.kind === 'read') return;
+    if (round.kind === 'read') {
+      if (lead.length) after(ASK_LEAD_MS, () => void audio.speak(lead));
+      return;
+    }
 
-    after(ASK_LEAD_MS, () => void ask(round));
+    after(ASK_LEAD_MS, () => void ask(round, lead));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [at, served, resting]);
 
@@ -237,6 +278,12 @@ export default function PlayScreen() {
 
   const finishRound = useCallback(
     (next: (p: typeof profile) => typeof profile) => {
+      /* Once per round, whoever asks. The round now ends when the dragon has
+         finished speaking, and a sound can be cut short by anything he taps —
+         which would land two of these on the same round and skip one. */
+      if (done.current === `${served}:${at}`) return;
+      done.current = `${served}:${at}`;
+
       const updated = next(profileRef.current);
       setProfile(updated);
       store.saveProfile(updated);
@@ -256,7 +303,7 @@ export default function PlayScreen() {
         }
       });
     },
-    [after, at, meal.length],
+    [after, at, meal.length, served],
   );
 
   const feed = useCallback(
@@ -273,13 +320,22 @@ export default function PlayScreen() {
         return;
       }
 
-      setEaten((e) => [...e, piece.text]);
+      /* The piece is not taken off the counter yet. For a third of a second it
+         is still drawn, shrinking into the dragon's mouth, because a piece that
+         blinks out of existence the instant he lets go of it never looked like
+         it was eaten by anything. */
+      setGoing(piece.text);
+      setBites((n) => n + 1);
       setMood('chewing');
-      after(500, () => setMood('happy'));
+      after(SWALLOW_MS, () => {
+        setGoing('');
+        setEaten((e) => [...e, piece.text]);
+      });
+      after(500 + SWALLOW_MS, () => setMood('happy'));
 
       if (round.kind === 'read') {
         // the word arrives as a reward for committing, not as a correction
-        void swallow(round.word);
+        const said = swallow(round.word);
         if (profileRef.current.settings.parentCheck) {
           setAwaitingCheck(true);
           after(9000, () =>
@@ -290,18 +346,26 @@ export default function PlayScreen() {
           );
           return;
         }
-        finishRound((p) => p);
+        void said.then(() => finishRound((p) => p));
         return;
       }
 
       if (round.kind === 'meet') {
-        void audio.speak([audio.sound(MUNCH)]);
-        finishRound((p) => recordPick(p, round.word.text, true));
+        void audio
+          .speak([audio.sound(MUNCH)])
+          .then(() => finishRound((p) => recordPick(p, round.word.text, true)));
         return;
       }
 
-      void swallow(round.word);
-      finishRound((p) => recordPick(p, round.word.text, !missed));
+      /* The next round waits for this to finish speaking.
+         It did not, and the two overlapped: the dragon said the word he had
+         just fed it while it was already halfway into asking for the next one,
+         so the reward for getting it right was a sentence with a word buried in
+         the middle of it. The pause after that is measured from the end of the
+         word, where a pause belongs. */
+      void swallow(round.word).then(() =>
+        finishRound((p) => recordPick(p, round.word.text, !missed)),
+      );
     },
     [after, finishRound, missed, round, say, swallow],
   );
@@ -326,6 +390,20 @@ export default function PlayScreen() {
     setPlate((p) => p.slice(0, -1));
   }, []);
 
+  /**
+   * The moment the pieces come out right.
+   *
+   * This round is two jobs and the second one was invisible. The pieces became a
+   * roll sitting on the plate and nothing said that it was now his to carry, so
+   * a child who had just solved the puzzle sat looking at a finished puzzle. Now
+   * the dragon says so, the roll rocks where it stands, and the line under it
+   * changes from what to do to what to do *next*.
+   */
+  const cheerReady = useCallback(() => {
+    const clip = phraseClip(READY);
+    void audio.speak([clip ? audio.sound(clip) : audio.said(READY)]);
+  }, []);
+
   const check = useCallback(
     (verdict: Verdict) => {
       setAwaitingCheck(false);
@@ -348,10 +426,34 @@ export default function PlayScreen() {
     return dictionary.filter((w) => owned.has(w.text)).reverse();
   }, [resting, profile]);
 
-  const onDragonLayout = (e: LayoutChangeEvent) => {
+  /**
+   * Where the counter ends and the dragon's half of the screen begins.
+   *
+   * The whole upper half counts as feeding it. Being fussy about the drop point
+   * tests motor control rather than reading, and on a 13-inch iPad held by a
+   * five-year-old the difference between the chin and the chest is a long way.
+   */
+  /* The plate, worked out before the screen is drawn, because the dragon has
+     something to say the instant the last piece lands in the right place. */
+  const slices = round?.kind === 'order' ? round.slices : [];
+  const assembled = plate.map((i) => slices[i]).join('');
+  const rollFull = round?.kind === 'order' && plate.length === slices.length;
+  const rollReady = rollFull && assembled === round.word.text;
+
+  useEffect(() => {
+    if (rollReady) cheerReady();
+  }, [rollReady, cheerReady]);
+
+  const onStageLayout = (e: LayoutChangeEvent) => {
     const { y, height } = e.nativeEvent.layout;
-    // let go anywhere above the dragon's chin and it counts
-    setDropLine(y + height * 0.92);
+    setDropLine(y + height);
+  };
+
+  /* The same idea one shelf lower: the plate is where the pieces of a long word
+     go, so letting go anywhere at or above it counts as putting one down. */
+  const onPlateLayout = (e: LayoutChangeEvent) => {
+    const { y, height } = e.nativeEvent.layout;
+    setPlateLine(y + height);
   };
 
   if (!profile.introSeen) return <HowItWorks onStart={start} />;
@@ -367,7 +469,6 @@ export default function PlayScreen() {
           accessibilityLabel="feed the dragon"
         >
           <Dragon fullness={1} mood="happy" size={300} />
-          <View style={styles.doorCounter} />
         </Pressable>
         {/* The one instruction on this screen, because a dragon sitting there
             is not obviously a button, and nothing else here is either. */}
@@ -381,51 +482,81 @@ export default function PlayScreen() {
   }
 
   const fullness = at / Math.max(meal.length, 1);
-  const slices = round.kind === 'order' ? round.slices : [];
-  const assembled = plate.map((i) => slices[i]).join('');
-  const rollFull = round.kind === 'order' && plate.length === slices.length;
-  const rollReady = rollFull && assembled === round.word.text;
 
   return (
     <SafeAreaView style={styles.screen}>
       <HomeButton onPress={rest} />
 
-      <View style={styles.dragonRow} onLayout={onDragonLayout}>
-        <Dragon mood={mood} fullness={fullness} breathing={searing} size={300} />
-      </View>
+      {/* The dragon's half of the screen: it sits in the middle of whatever is
+          left over rather than clinging to the top, because on a tall iPad that
+          left a hand's width of empty night between it and its dinner. */}
+      <View style={styles.stage} onLayout={onStageLayout}>
+        <View style={styles.dragonRow}>
+          {/* Pleased, the moment the pieces come out right — and pleased is
+              the face of an animal waiting to be handed something. */}
+          <Dragon
+            mood={rollReady && mood === 'idle' ? 'happy' : mood}
+            fullness={fullness}
+            chomp={bites}
+            size={320}
+          />
+        </View>
 
-      {/* What to do, in one line, on every round.
+        {/* What to do, in one line, on every round.
           Without it the game is a dragon, some sushi, and no clue: the rules
           were only ever in the spoken prompt, which says the word and not what
           to do with it — and says nothing at all in a reading round. */}
-      <Text style={styles.prompt}>{PROMPT[round.kind]}</Text>
+        {/* The button that says it again lives here, next to the question it
+            repeats. It used to be a 🔊 in the far corner by the food — system
+            grey, on a night-blue screen, nowhere near the thing it acts on. */}
+        <View style={styles.promptRow}>
+          <Text style={styles.prompt}>
+            {rollReady ? 'Well done — that is the word!' : PROMPT[round.kind]}
+          </Text>
+          {round.kind !== 'read' && <SayAgain onPress={again} />}
+        </View>
 
-      {/* What the green dab on a letter means.
-          The mark has been there since the first version and the explanation
-          for it has been sitting in the word list, unread, since the same day:
-          a mark nobody can read is decoration, and this one is the single most
-          useful thing the game knows about the word. It appears while the word
-          is being introduced, which is the moment it is worth saying. */}
-      {round.kind === 'meet' && round.word.tricky && (
-        <Text style={styles.lying}>{lyingBit(round.word)}</Text>
-      )}
+        {/* What the green dab on a letter means.
+            The mark has been there since the first version and the explanation
+            for it has been sitting in the word list, unread, since the same day:
+            a mark nobody can read is decoration, and this one is the single most
+            useful thing the game knows about the word. It appears while the word
+            is being introduced, which is the moment it is worth saying — and now
+            nowhere else, because everywhere else it was a green dab on the only
+            sushi on the counter that had one. */}
+        {round.kind === 'meet' && round.word.tricky && (
+          <Text style={styles.lying}>{lyingBit(round.word)}</Text>
+        )}
 
-      {/* How much of the meal is left, as plates. He cannot read "round 3 of
-          6", and a meal with no visible end is one he has no reason to
-          finish. */}
-      <View style={styles.progress}>
-        {meal.map((_, i) => (
-          <View key={i} style={[styles.plate, i < at && styles.plateEaten]} />
-        ))}
+        {/* How much of the meal is left, as plates. He cannot read "round 3 of
+            6", and a meal with no visible end is one he has no reason to
+            finish. */}
+        <View style={styles.progress}>
+          {meal.map((_, i) => (
+            <View key={i} style={[styles.plate, i < at && styles.plateEaten]} />
+          ))}
+        </View>
       </View>
 
       {/* The plate. Slots are drawn empty so it is obvious something goes in
           them, and how many — a blank space told him nothing. */}
       {round.kind === 'order' && (
-        <View style={styles.plateRow}>
+        <View style={styles.plateRow} onLayout={onPlateLayout}>
           {rollReady ? (
-            <Carry enabled onFeed={() => feed(round.word)} dropAboveY={dropLine}>
-              <Sushi chunks={plate.map((i) => slices[i])} tricky={round.word.tricky} scale={0.9} />
+            <Carry
+              label={`the roll ${round.word.text}`}
+              enabled={!going}
+              swallowed={going === round.word.text}
+              onFeed={() => feed(round.word)}
+              onTap={cheerReady}
+              dropAboveY={dropLine}
+              onOverChange={(over) => setMood(over ? 'happy' : 'idle')}
+            >
+              {/* Rocking, until he takes it. The dragon says what to do once;
+                  this goes on saying it. */}
+              <Bob on={!going}>
+                <Sushi chunks={plate.map((i) => slices[i])} scale={0.9} />
+              </Bob>
             </Carry>
           ) : (
             <Pressable
@@ -447,6 +578,7 @@ export default function PlayScreen() {
               ))}
             </Pressable>
           )}
+          {rollReady && <Text style={styles.readyHint}>now drag it up to the dragon</Text>}
           {rollFull && !rollReady && (
             <Text style={styles.hint}>tap the plate to take one back</Text>
           )}
@@ -457,14 +589,22 @@ export default function PlayScreen() {
         {round.kind === 'order'
           ? slices.map((text, index) =>
               plate.includes(index) ? null : (
-                <Pressable
+                /* Carried onto the plate, or tapped onto it. Tapping was the
+                   only way for a long time, on a screen where every other piece
+                   of food is dragged — so the one round that asked him to do
+                   something else looked broken to a child who tried the thing
+                   the rest of the game had taught him. */
+                <Carry
                   key={`${text}-${index}`}
-                  onPress={() => place(index)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`piece ${text}`}
+                  label={`piece ${text}`}
+                  enabled={!going}
+                  onFeed={() => place(index)}
+                  onTap={() => place(index)}
+                  // until the plate has been measured, the dragon's line will do
+                  dropAboveY={plateLine || dropLine}
                 >
-                  <Sushi chunks={[text]} scale={0.85} showSeams={false} />
-                </Pressable>
+                  <Sushi chunks={[text]} scale={0.85} />
+                </Carry>
               ),
             )
           : optionsFor(round)
@@ -472,15 +612,21 @@ export default function PlayScreen() {
               .map((word) => (
                 <Carry
                   key={word.text}
-                  enabled={!awaitingCheck}
+                  label={`piece ${word.text}`}
+                  enabled={!awaitingCheck && !going}
+                  swallowed={going === word.text}
                   onFeed={() => feed(word)}
                   onTap={again}
                   dropAboveY={dropLine}
                   onOverChange={(over) => setMood(over ? 'happy' : 'idle')}
                 >
+                  {/* The green mark only ever appears alongside the line that
+                      explains it. On a counter of three it appeared on one
+                      sushi and one only — the right one — which handed him the
+                      answer without his having read a letter of it. */}
                   <Sushi
                     chunks={word.chunks}
-                    tricky={word.tricky}
+                    tricky={round.kind === 'meet' ? word.tricky : null}
                     scale={optionsFor(round).length > 2 ? 0.8 : 1}
                   />
                 </Carry>
@@ -488,17 +634,6 @@ export default function PlayScreen() {
       </View>
       <View style={styles.counter} />
 
-      {round.kind !== 'read' && (
-        <Pressable
-          style={styles.again}
-          onPress={again}
-          accessibilityRole="button"
-          accessibilityLabel="say it again"
-          hitSlop={16}
-        >
-          <Text style={styles.againGlyph}>🔊</Text>
-        </Pressable>
-      )}
 
       {/* The three buttons are for the grown-up and were unlabelled, which
           made them look like the game asking the child something. */}
@@ -550,7 +685,7 @@ function Hoard({ words, onSay }: { words: Word[]; onSay: (word: Word) => void })
             accessibilityRole="button"
             accessibilityLabel={`his word ${word.text}`}
           >
-            <Sushi chunks={word.chunks} tricky={word.tricky} scale={0.42} />
+            <Sushi chunks={word.chunks} scale={0.42} />
           </Pressable>
         ))}
       </ScrollView>
@@ -597,27 +732,18 @@ const PROMPT: Record<RoundKind, string> = {
 /**
  * How the game works, once, before the first meal.
  *
- * A dragon, some sushi and no instructions is a game whose rules you have to
- * guess, and the person who has to understand them first is the parent — who
- * gets thirty seconds of a five-year-old's patience to work out what the app
- * wants from them. Four lines, one button, never seen again.
+ * Two lines. It was five, which is a page — and a page in front of a child who
+ * has just been handed an iPad is a page nobody reads, including the parent,
+ * who is being hurried. Everything the five lines said is still written down
+ * under *How the game works* on the grown-ups' side, where there is time.
  */
 function HowItWorks({ onStart }: { onStart: () => void }) {
   return (
     <SafeAreaView style={[styles.screen, styles.middle, styles.intro]}>
-      <Dragon mood="happy" size={200} />
-      <Text style={styles.introTitle}>Feed the dragon words</Text>
-      {[
-        'The dragon asks for a word out loud. Drag the right sushi up to its mouth.',
-        'Some words arrive in pieces to put back in order. Some he reads out loud himself — then you tap how it went.',
-        'A green mark sits on a letter that does not say its usual sound — the e in “have”, which does nothing at all.',
-        'Words he reads go on the shelf behind the counter, and the game brings back the ones he is still learning.',
-        'Grown-ups: add the words he trips on in his bedtime book, in your own voice.',
-      ].map((line) => (
-        <Text key={line} style={styles.introLine}>
-          {line}
-        </Text>
-      ))}
+      <Dragon mood="happy" size={220} />
+      <Text style={styles.introTitle}>Sushi Dragon</Text>
+      <Text style={styles.introLine}>The dragon asks for a word.</Text>
+      <Text style={styles.introLine}>Drag the right sushi into its mouth.</Text>
       <Pressable
         onPress={onStart}
         style={styles.introButton}
@@ -639,7 +765,7 @@ function HowItWorks({ onStart }: { onStart: () => void }) {
  */
 export const lyingBit = (word: Word): string =>
   word.tricky
-    ? `the “${word.text.slice(word.tricky.start, word.tricky.end)}” ${word.tricky.says}`
+    ? `The green “${word.text.slice(word.tricky.start, word.tricky.end)}” is a liar. Here it ${word.tricky.says}.`
     : '';
 
 const CHECK_LABEL: Record<Verdict, string> = {
@@ -658,15 +784,6 @@ const styles = StyleSheet.create({
   doorTitle: { color: CREAM, fontSize: 30, fontWeight: '800', marginBottom: 6 },
   doorHint: { color: LANTERN, opacity: 0.75, fontSize: 16, marginTop: 14 },
   door: { alignItems: 'center' },
-  doorCounter: {
-    width: 300,
-    height: 14,
-    marginTop: -26,
-    borderRadius: 5,
-    backgroundColor: WOOD,
-    borderBottomWidth: 5,
-    borderBottomColor: WOOD_DARK,
-  },
   hoard: { position: 'absolute', left: 0, right: 0, bottom: 44, gap: 8 },
   hoardTitle: {
     color: CREAM,
@@ -681,14 +798,16 @@ const styles = StyleSheet.create({
   parentText: { color: LANTERN, opacity: 0.55, fontSize: 13 },
 
   intro: { padding: 32, gap: 10 },
-  introTitle: { color: CREAM, fontSize: 28, fontWeight: '800', marginBottom: 4 },
+  introTitle: { color: CREAM, fontSize: 32, fontWeight: '800', marginBottom: 8 },
+  /* Full brightness, and bigger. It was cream at seven-tenths opacity on a dark
+     blue room, which is a grey on a navy — legible on a screenshot and hard
+     work on a tablet held at arm's length by somebody being hurried. */
   introLine: {
     color: CREAM,
-    opacity: 0.7,
-    fontSize: 16,
+    fontSize: 20,
     textAlign: 'center',
-    maxWidth: 560,
-    lineHeight: 23,
+    maxWidth: 640,
+    lineHeight: 29,
   },
   introButton: {
     marginTop: 18,
@@ -699,15 +818,16 @@ const styles = StyleSheet.create({
   },
   introButtonText: { color: NIGHT, fontWeight: '800', fontSize: 18 },
 
-  dragonRow: { alignItems: 'center', paddingTop: 2 },
+  stage: { flex: 1, justifyContent: 'center', paddingBottom: 8 },
+  dragonRow: { alignItems: 'center' },
 
   prompt: {
     color: CREAM,
-    opacity: 0.72,
-    fontSize: 17,
+    opacity: 0.92,
+    fontSize: 19,
     textAlign: 'center',
     paddingHorizontal: 24,
-    paddingTop: 6,
+    paddingTop: 10,
   },
   lying: {
     color: WASABI,
@@ -728,13 +848,17 @@ const styles = StyleSheet.create({
 
   plateRow: { alignItems: 'center', gap: 6, minHeight: 92, justifyContent: 'center' },
   slots: { flexDirection: 'row', gap: 8 },
+  /* Drawn in the rice colour, not in the seam colour it used to use: a seam is
+     a dark line meant to be seen against rice, and on a night-blue background
+     it was a slot nobody could see they were meant to fill. */
   slot: {
     minWidth: 86,
     height: 68,
     borderRadius: 14,
     borderWidth: 3,
-    borderColor: SEAM,
+    borderColor: 'rgba(255,248,231,0.4)',
     borderStyle: 'dashed',
+    backgroundColor: 'rgba(255,248,231,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,
@@ -742,7 +866,14 @@ const styles = StyleSheet.create({
   slotFull: { backgroundColor: RICE, borderStyle: 'solid', borderColor: RICE },
   slotText: { fontSize: 34, fontWeight: '700', color: '#2b2118' },
   hint: { color: CREAM, opacity: 0.45, fontSize: 13 },
+  /* Brighter than a hint, because this one is not a note to the grown-up: it is
+     the second half of the round, and it was not on the screen at all. */
+  readyHint: { color: LANTERN, fontSize: 15, fontWeight: '600' },
 
+  /* The height is fixed so that the counter does not collapse when the last
+     piece is eaten. It used to, and the dragon — centred in whatever was left
+     over — dropped half an inch at the exact moment the sushi disappeared,
+     which looked like the animal flinching. */
   counterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -752,21 +883,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginTop: 'auto',
     paddingBottom: 16,
+    minHeight: 136,
   },
   counter: { height: 16, backgroundColor: WOOD, borderTopWidth: 4, borderTopColor: WOOD_DARK },
 
-  again: {
-    position: 'absolute',
-    left: 20,
-    bottom: 30,
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: 'rgba(255,248,231,0.12)',
+  promptRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 24,
   },
-  againGlyph: { fontSize: 28 },
 
   check: {
     position: 'absolute',

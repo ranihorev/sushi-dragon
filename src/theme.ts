@@ -30,9 +30,8 @@ export const ROE = '#ff6b35';
  */
 export const SCALE = '#7fd4ab';
 
-/** dragon fire, which is also the aburi torch that sears a new word */
+/** the warm orange of the lanterns and the "add a word" button */
 export const FIRE = '#ff9f1c';
-export const FIRE_HOT = '#ffdd57';
 
 /** the dab that marks a letter which doesn't say what it should */
 export const WASABI = '#7cb518';

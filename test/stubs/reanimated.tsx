@@ -72,6 +72,9 @@ export function useAnimatedReaction(
 export const withSpring = <T,>(to: T, _cfg?: unknown, done?: () => void) => (done?.(), to);
 export const withTiming = <T,>(to: T, _cfg?: unknown, done?: () => void) => (done?.(), to);
 export const withDelay = <T,>(_ms: number, to: T) => to;
+export const withSequence = <T,>(...steps: T[]) => steps[steps.length - 1];
+/** A loop, seen from outside time: wherever one pass of it leaves the value. */
+export const withRepeat = <T,>(step: T) => step;
 export const useAnimatedStyle = (fn: () => object) => fn();
 export const runOnJS = <F,>(fn: F) => fn;
 export const runOnUI = <F,>(fn: F) => fn;

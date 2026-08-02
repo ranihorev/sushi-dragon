@@ -17,6 +17,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import type { DragonProfile } from './progress';
 import { blankProfile } from './progress';
+import { trickySpan } from './tricky';
 import type { Word } from './words';
 import { starterDictionary } from './words';
 
@@ -80,11 +81,23 @@ export const saveProfile = (p: DragonProfile) => writeJson('profile.json', p);
 /** First run seeds the starter words, so the dragon is never handed an empty counter. */
 export function loadDictionary(): Word[] {
   const stored = readJson<Word[]>('words.json');
-  if (stored?.length) return stored;
+  if (stored?.length) return stored.map(retrick);
   const seeded = starterDictionary();
   saveDictionary(seeded);
   return seeded;
 }
+
+/**
+ * Work out the misbehaving letters again, rather than trusting the copy on disk.
+ *
+ * Which letters lie and what they say instead belongs to the app, not to the
+ * child: it was written down beside the word the day the word was added, and if
+ * that sentence is later improved — as it was, from `says /u/, as in cup` to
+ * something a parent can read — every word already on the iPad would otherwise
+ * keep the old one forever. Seams are left alone, because those can be
+ * corrected by hand and that correction is his.
+ */
+const retrick = (word: Word): Word => ({ ...word, tricky: trickySpan(word.text) });
 
 export const saveDictionary = (words: Word[]) => writeJson('words.json', words);
 

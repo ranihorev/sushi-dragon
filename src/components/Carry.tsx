@@ -1,4 +1,10 @@
-import { useCallback } from 'react';
+/* eslint-disable react-hooks/immutability --
+   Every line of this component's job is writing to a Reanimated shared value,
+   which the React compiler reads as mutating something it was told not to. It
+   is a mutable box on purpose and the rule has nothing true to say about it
+   here; leaving it on meant a file that was permanently seven errors deep,
+   which is a file nobody looks at the errors in. */
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -21,6 +27,10 @@ interface Props {
   dropAboveY: number;
   /** so the animal can open its mouth as the food approaches */
   onOverChange?: (over: boolean) => void;
+  /** it was accepted — shrink into the mouth instead of going back to the counter */
+  swallowed?: boolean;
+  /** what it is, for anything that cannot see it */
+  label?: string;
 }
 
 /**
@@ -44,12 +54,49 @@ interface Props {
  * and that got lost in the port — so tapping did nothing at all, which is
  * exactly the sort of thing that makes a game feel broken.
  */
-export function Carry({ children, enabled, onFeed, onTap, dropAboveY, onOverChange }: Props) {
+export function Carry({
+  children,
+  enabled,
+  onFeed,
+  onTap,
+  dropAboveY,
+  onOverChange,
+  swallowed = false,
+  label,
+}: Props) {
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const held = useSharedValue(0);
   const over = useSharedValue(0);
   const hop = useSharedValue(0);
+  const gone = useSharedValue(0);
+
+  /** bumped every time it is let go above the line — never read, only watched */
+  const [dropped, setDropped] = useState(0);
+  const land = useCallback(() => setDropped((n) => n + 1), []);
+
+  /**
+   * What happens after it is let go over the dragon.
+   *
+   * It waits where it was dropped rather than snapping back to the counter,
+   * because whether it was the right piece is not this component's business and
+   * is not known for another frame. If it was, it shrinks away into the mouth;
+   * if it wasn't, it goes home and he can try again.
+   */
+  useEffect(() => {
+    if (!dropped) return;
+    if (swallowed) {
+      gone.value = withTiming(1, { duration: 260 });
+      return;
+    }
+    x.value = withSpring(0);
+    y.value = withSpring(0);
+    /* The shared values are deliberately not listed. They are stable for the
+       life of the component, and naming them here would mark them as effect
+       dependencies — after which every write to one, anywhere in the file, is a
+       lint error. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dropped, swallowed]);
 
   const notify = useCallback(
     (isOver: boolean) => onOverChange?.(isOver),
@@ -86,9 +133,7 @@ export function Carry({ children, enabled, onFeed, onTap, dropAboveY, onOverChan
       over.value = 0;
       if (landed) {
         runOnJS(onFeed)();
-        // it has been eaten; snap back invisibly rather than flying home
-        x.value = 0;
-        y.value = 0;
+        runOnJS(land)();
       } else {
         x.value = withSpring(0);
         y.value = withSpring(0);
@@ -108,16 +153,22 @@ export function Carry({ children, enabled, onFeed, onTap, dropAboveY, onOverChan
   const style = useAnimatedStyle(() => ({
     transform: [
       { translateX: x.value },
-      { translateY: y.value - hop.value * 16 },
-      { scale: 1 + held.value * 0.08 + over.value * 0.06 },
+      // the last of it is drawn upward, into the mouth rather than through it
+      { translateY: y.value - hop.value * 16 - gone.value * 26 },
+      { scale: (1 + held.value * 0.08 + over.value * 0.06) * (1 - gone.value * 0.88) },
     ],
+    opacity: 1 - gone.value,
     shadowOpacity: 0.35 * held.value,
     zIndex: held.value > 0 ? 50 : 1,
   }));
 
   return (
     <GestureDetector gesture={Gesture.Exclusive(pan, tap)}>
-      <Animated.View style={[styles.piece, style]}>
+      <Animated.View
+        style={[styles.piece, style]}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+      >
         <View>{children}</View>
       </Animated.View>
     </GestureDetector>

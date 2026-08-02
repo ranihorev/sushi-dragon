@@ -83,17 +83,20 @@ export const isRoll = (w: Word) => w.chunks.length > 1;
  *
  * Chosen for a child who can already blend `mat` and comes unstuck on the two
  * things that beat CVC readers: words too long to hold in your head one sound
- * at a time, and words where the letters don't keep their promises. Every one
- * of these is replaceable — the parent screen can clear the lot.
+ * at a time, and words where the letters don't keep their promises.
+ *
+ * Ten of them, where there used to be thirty-three. Thirty-three is a term's
+ * work handed over on the first evening, and the meal planner ranks by need:
+ * with that many waiting, a word he half-knows does not come back round for a
+ * fortnight, by which time he has lost it again. Ten come back often enough to
+ * stick, and the eleventh is supposed to be a word he actually tripped on,
+ * added by hand from a real book.
  */
 export const STARTER_WORDS = [
   // the letters lie in all of these
-  'said', 'was', 'come', 'some', 'have', 'they', 'there', 'you', 'your',
-  'want', 'what', 'one', 'two', 'who', 'friend', 'because', 'put', 'could',
-  'would', 'love', 'of', 'the',
-  // and these are simply too long to sound out in one go
-  'dragon', 'sushi', 'rabbit', 'monster', 'picnic', 'birthday', 'chicken',
-  'hungry', 'little', 'apple', 'jumping', 'sunshine',
+  'said', 'was', 'come', 'have', 'they', 'you', 'what', 'one',
+  // and these two are simply too long to sound out in one go
+  'dragon', 'sushi',
 ];
 
 export const starterDictionary = (addedAt = '2026-07-29'): Word[] =>

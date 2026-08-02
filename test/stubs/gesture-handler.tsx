@@ -38,6 +38,8 @@ const CHAINABLE = [
   'enabled',
   'minDistance',
   'maxDistance',
+  'activeOffsetX',
+  'failOffsetY',
   'minDuration',
   'maxDuration',
   'shouldCancelWhenOutside',

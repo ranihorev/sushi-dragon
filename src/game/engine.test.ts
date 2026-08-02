@@ -66,12 +66,16 @@ describe('buildRound', () => {
     for (const o of round.options) expect(o.text).toMatch(/ight$/);
   });
 
-  it('widens the counter as a word becomes his', () => {
+  it('always offers three, however well he knows the word', () => {
+    /* The counter used to widen from two to four as a word became his. Two is a
+       coin toss he wins half the time without reading anything, and four is
+       four small sushi on an iPad held by a five-year-old. What gets harder is
+       which three words they are, not how many. */
     const weak = blankProfile();
     const strong = solid(blankProfile(), 'night');
     const pool = dict('night');
-    expect(buildRound(weak, makeWord('night'), pool, 'pick').options).toHaveLength(2);
-    expect(buildRound(strong, makeWord('night'), pool, 'pick').options).toHaveLength(4);
+    expect(buildRound(weak, makeWord('night'), pool, 'pick').options).toHaveLength(3);
+    expect(buildRound(strong, makeWord('night'), pool, 'pick').options).toHaveLength(3);
   });
 
   it('jumbles the slices of a roll', () => {

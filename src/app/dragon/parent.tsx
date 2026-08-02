@@ -6,6 +6,7 @@ import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SwipeAway } from '@/components/SwipeAway';
 import { grip, isSolid, statFor, type DragonProfile } from '@/game/progress';
 import * as store from '@/game/storage';
 import type { Word } from '@/game/words';
@@ -37,19 +38,22 @@ export default function ParentScreen() {
     store.saveProfile(next);
   };
 
+  const drop = (word: Word) => {
+    store.forgetRecording(word.text);
+    const next = words.filter((w) => w.text !== word.text);
+    store.saveDictionary(next);
+    setWords(next);
+  };
+
+  /* There is a confirmation because the recording goes with the word and a
+     recording cannot be got back. The button, on the other hand, is right there
+     on the row: removing a word used to be a long press with a line of small
+     print at the bottom of the screen explaining that it existed, which is a
+     feature nobody has. */
   const remove = (word: Word) => {
-    Alert.alert(`Remove “${word.text}”?`, 'Its recording goes too.', [
+    Alert.alert(`Remove “${word.text}”?`, 'Its recording goes with it.', [
       { text: 'Keep it', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          store.forgetRecording(word.text);
-          const next = words.filter((w) => w.text !== word.text);
-          store.saveDictionary(next);
-          setWords(next);
-        },
-      },
+      { text: 'Remove', style: 'destructive', onPress: () => drop(word) },
     ]);
   };
 
@@ -112,47 +116,57 @@ export default function ParentScreen() {
         {words.map((word) => {
           const stat = statFor(profile, word.text);
           return (
-            <Pressable
+            <SwipeAway
               key={word.text}
-              style={styles.word}
-              onLongPress={() => remove(word)}
-              accessibilityRole="button"
-              accessibilityLabel={word.text}
+              onRemove={() => remove(word)}
+              label={`${word.text} — swipe left to remove`}
             >
-              <View style={styles.wordMain}>
-                <Text style={styles.wordText}>{word.chunks.join('·')}</Text>
-                {word.tricky && <View style={styles.dot} />}
-                {!store.hasVoice(word.text) && <Text style={styles.silent}>no voice</Text>}
-              </View>
+              <View style={styles.word}>
+                <View style={styles.wordMain}>
+                  <Text style={styles.wordText}>{word.chunks.join('·')}</Text>
+                  {word.tricky && <View style={styles.dot} />}
+                  {!store.hasVoice(word.text) && <Text style={styles.silent}>no voice</Text>}
+                  <View style={styles.spacer} />
+                  <Pressable
+                    onPress={() => remove(word)}
+                    hitSlop={10}
+                    style={styles.drop}
+                    accessibilityRole="button"
+                    accessibilityLabel={`remove ${word.text}`}
+                  >
+                    <Text style={styles.dropText}>remove</Text>
+                  </Pressable>
+                </View>
 
-              <View style={styles.barTrack}>
-                <View
-                  style={[
-                    styles.barFill,
-                    {
-                      width: `${Math.round(grip(stat) * 100)}%`,
-                      backgroundColor: isSolid(profile, word.text) ? SCALE : FIRE,
-                    },
-                  ]}
-                />
-              </View>
+                <View style={styles.barTrack}>
+                  <View
+                    style={[
+                      styles.barFill,
+                      {
+                        width: `${Math.round(grip(stat) * 100)}%`,
+                        backgroundColor: isSolid(profile, word.text) ? SCALE : FIRE,
+                      },
+                    ]}
+                  />
+                </View>
 
-              <Text style={styles.meta}>
-                {stat.seen === 0
-                  ? 'not met yet'
-                  : `read ${stat.spoken}× · ${stat.last ?? 'seen'}${
-                      word.source ? ` · ${word.source}` : ''
-                    }`}
-              </Text>
-
-              {/* Why this word is marked. The game has always known it and has
-                  never said it anywhere you could read it. */}
-              {word.tricky && (
-                <Text style={styles.lying}>
-                  the “{word.text.slice(word.tricky.start, word.tricky.end)}” {word.tricky.says}
+                <Text style={styles.meta}>
+                  {stat.seen === 0
+                    ? 'not met yet'
+                    : `read ${stat.spoken}× · ${stat.last ?? 'seen'}${
+                        word.source ? ` · ${word.source}` : ''
+                      }`}
                 </Text>
-              )}
-            </Pressable>
+
+                {/* Why this word is marked. The game has always known it and has
+                    never said it anywhere you could read it. */}
+                {word.tricky && (
+                  <Text style={styles.lying}>
+                    the “{word.text.slice(word.tricky.start, word.tricky.end)}” {word.tricky.says}
+                  </Text>
+                )}
+              </View>
+            </SwipeAway>
           );
         })}
 
@@ -170,7 +184,7 @@ export default function ParentScreen() {
           'Heard it — the dragon asks for a word out loud; he drags the right sushi up to its mouth.',
           'In pieces — a long word arrives cut into syllables to put back in order.',
           'Read it — the word alone. He reads it out loud, feeds it, and you tap how it went.',
-          'A green mark on a letter means that letter does not say its usual sound. Every marked word in the list above says what it is up to.',
+          'A green mark on a letter means that letter does not say its usual sound. It is only drawn while a word is being introduced, alongside the line that explains it — on a counter of three it was a green dab on the right answer and nowhere else. Every marked word in the list above says what it is up to.',
         ].map((line) => (
           <Text key={line} style={styles.rule}>
             · {line}
@@ -182,22 +196,26 @@ export default function ParentScreen() {
           record one — a word with your own voice on it is worth far more to him.
         </Text>
 
+        {/* Two switches, and both used to be named after the parent rather than
+            after what they do to the game — "I sit with him and tap how it went"
+            says nothing about which rounds disappear if you turn it off. */}
         <Text style={styles.section}>Settings</Text>
 
         <View style={styles.setting}>
-          <Text style={styles.settingText}>I sit with him and tap how it went</Text>
+          <Text style={styles.settingText}>Include rounds where he reads aloud</Text>
           <Switch
             value={profile.settings.parentCheck}
             onValueChange={(v) => setSetting('parentCheck', v)}
           />
         </View>
         <Text style={styles.hint}>
-          Off, the game stops asking him to read aloud and only sets him rounds it can score by
-          itself.
+          {profile.settings.parentCheck
+            ? 'On: a word he knows well appears with no sound at all. He reads it to you, feeds it, and three buttons ask you how it went. This is the round that teaches the most, and it only works with somebody listening.'
+            : 'Off: every round can be marked right or wrong by the game itself, so he can play alone. Nothing asks him to read out loud.'}
         </Text>
 
         <View style={styles.setting}>
-          <Text style={styles.settingText}>Words per meal</Text>
+          <Text style={styles.settingText}>Words in one sitting</Text>
           <View style={styles.stepper}>
             {[4, 6, 8].map((n) => (
               <Pressable
@@ -205,12 +223,17 @@ export default function ParentScreen() {
                 onPress={() => setSetting('roundsPerMeal', n)}
                 style={[styles.step, profile.settings.roundsPerMeal === n && styles.stepOn]}
                 accessibilityRole="button"
+                accessibilityLabel={`${n} words in one sitting`}
               >
                 <Text style={styles.stepText}>{n}</Text>
               </Pressable>
             ))}
           </View>
         </View>
+        <Text style={styles.hint}>
+          How many words the dragon eats before it is full and the game stops. Four is about two
+          minutes. Stop before he wants to stop.
+        </Text>
 
         <Text style={styles.section}>Backup</Text>
         <Text style={styles.hint}>
@@ -225,8 +248,6 @@ export default function ParentScreen() {
             <Text style={styles.secondaryText}>Restore</Text>
           </Pressable>
         </View>
-
-        <Text style={styles.hint}>Hold a word to remove it.</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -256,6 +277,15 @@ const styles = StyleSheet.create({
   wordText: { color: CREAM, fontSize: 20, fontWeight: '600' },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: WASABI },
   silent: { color: '#ff8f5e', fontSize: 11, opacity: 0.8 },
+  spacer: { flex: 1 },
+  drop: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,248,231,0.25)',
+  },
+  dropText: { color: CREAM, opacity: 0.7, fontSize: 12 },
   barTrack: { height: 4, borderRadius: 2, backgroundColor: 'rgba(255,248,231,0.12)' },
   barFill: { height: 4, borderRadius: 2 },
   meta: { color: CREAM, opacity: 0.45, fontSize: 12 },

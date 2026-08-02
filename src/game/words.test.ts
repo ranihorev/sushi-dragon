@@ -90,12 +90,21 @@ describe('the tricky table', () => {
 });
 
 describe('the starter dictionary', () => {
-  it('is mostly the two things that beat a child who can already blend', () => {
+  it('is short enough that a word comes back round while he still has it', () => {
+    /* It was thirty-three, which is a term's work handed over on the first
+       evening. The meal planner ranks by need, so with that many waiting a word
+       he half-knew did not reappear for a fortnight — by which time he did not
+       half-know it any more. */
+    expect(starterDictionary().length).toBeLessThanOrEqual(10);
+  });
+
+  it('is the two things that beat a child who can already blend', () => {
     const words = starterDictionary();
     const tricky = words.filter((w) => w.tricky).length;
     const long = words.filter((w) => w.chunks.length > 1).length;
-    expect(tricky).toBeGreaterThan(8);
-    expect(long).toBeGreaterThan(8);
+    // letters that lie, mostly, and a couple too long to hold in your head
+    expect(tricky).toBeGreaterThanOrEqual(words.length - 3);
+    expect(long).toBeGreaterThan(0);
   });
 
   it('gives every word pieces that spell it', () => {

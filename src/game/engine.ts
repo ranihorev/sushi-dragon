@@ -48,15 +48,14 @@ function shuffle<T>(items: T[], rng: Rng): T[] {
 /**
  * How many words to choose between.
  *
- * Two while a word is new, four once it is nearly his. Widening the field is
- * the only difficulty knob in the game and it is never announced — he
- * experiences a busier counter, not a harder level.
+ * Three, always. It used to widen from two to four as a word became his, on the
+ * theory that a busier counter is a harder round nobody has to announce. In
+ * practice two is a coin toss he wins half the time without reading anything,
+ * and four on an iPad held by a five-year-old is four small sushi. Three is
+ * enough to make a guess cost something, and the difficulty is carried by which
+ * three words they are — that is what `hold` still decides.
  */
-function optionCount(hold: number): number {
-  if (hold < 0.3) return 2;
-  if (hold < 0.65) return 3;
-  return 4;
-}
+const OPTIONS = 3;
 
 /**
  * Which kind of round a word has earned.
@@ -93,7 +92,7 @@ export function buildRound(
   if (kind === 'pick') {
     const hold = grip(statFor(profile, word.text));
     const pool = dictionary.map((w) => w.text);
-    const wrong = distractors(word.text, pool, optionCount(hold) - 1, hold);
+    const wrong = distractors(word.text, pool, OPTIONS - 1, hold);
     const byText = new Map(dictionary.map((w) => [w.text, w]));
     const options = wrong.map((t) => byText.get(t) ?? asWord(t, word));
     return { kind, word, options: shuffle([word, ...options], rng), slices: [] };

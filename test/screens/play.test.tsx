@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { pan } from '../stubs/gesture-handler';
+import { pan, tap } from '../stubs/gesture-handler';
 import { refocus, router } from '../stubs/expo-router';
 import { blankProfile, type DragonProfile, type WordStat } from '@/game/progress';
 import { makeWord } from '@/game/words';
@@ -23,6 +23,17 @@ vi.mock('@/game/storage', () => ({
   voiceFile: (word: string) => ({ uri: `file:///${word}.m4a` }),
   keepRecording: vi.fn(),
   forgetRecording: vi.fn(),
+}));
+
+/* The clips the app ships with. Real ones are bundled assets, which a test
+   cannot tell apart from each other, so they are named here instead: `recorded`
+   means the dragon's own voice, and its absence means the iPad has to read the
+   word itself. */
+let recorded = true;
+
+vi.mock('@/game/voices', () => ({
+  wordClip: (text: string) => (recorded ? `clip:${text}` : undefined),
+  phraseClip: (text: string) => (recorded ? `clip:${text}` : undefined),
 }));
 
 const spoke = vi.fn();
@@ -60,6 +71,22 @@ async function asked(): Promise<{ play?: string; say?: string }[]> {
   return spoke.mock.calls.flat(2) as { play?: string; say?: string }[];
 }
 
+/**
+ * Let time pass in steps rather than in one go.
+ *
+ * A round schedules the next round, which schedules the question after it, so
+ * the timers are a chain and not a list. One long `act` runs the first link and
+ * only then flushes React — by which time the second link is being scheduled
+ * from a moment that has already gone past.
+ */
+async function settle(ms: number, step = 300) {
+  for (let waited = 0; waited < ms; waited += step) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, step));
+    });
+  }
+}
+
 /** One round, one word, a grown-up listening — the situation each test wants. */
 function situation(word: string, over: Partial<WordStat>) {
   profile = {
@@ -74,10 +101,32 @@ function situation(word: string, over: Partial<WordStat>) {
 
 beforeEach(() => {
   voiced = true;
+  recorded = true;
   saveProfile.mockClear();
   spoke.mockClear();
   situation('dragon', {});
 });
+
+/**
+ * Which gesture belongs to which piece.
+ *
+ * The pieces on the counter are carried now, not tapped, so they are gestures
+ * rather than buttons — and the gestures are numbered in the order they were
+ * mounted, which is the order the pieces are drawn in. The slices arrive
+ * shuffled, so the number has to be looked up rather than assumed.
+ */
+function pieceAt(label: string) {
+  const on = [...document.querySelectorAll('[aria-label^="piece "]')];
+  const found = on.findIndex((el) => el.getAttribute('aria-label') === label);
+  if (found < 0) throw new Error(`no “${label}” on the counter`);
+  return found;
+}
+
+/** Put a slice on the plate the short way. */
+const tapPiece = (label: string) => act(() => void tap(pieceAt(label)).end());
+
+/** And the way the rest of the game works: pick it up and carry it there. */
+const dragPiece = (label: string) => act(() => void pan(pieceAt(label)).dragTo(60));
 
 describe('putting a roll back together', () => {
   it('draws an empty slot for every slice, so he can see how many go in', () => {
@@ -89,17 +138,26 @@ describe('putting a roll back together', () => {
 
   it('fills a slot when he taps a slice', () => {
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece drag'));
+    tapPiece('piece drag');
     expect(screen.getByTestId('slot-full')).toHaveTextContent('drag');
     expect(screen.getAllByTestId('slot-empty')).toHaveLength(1);
+  });
+
+  /* Every other piece of food in this game is dragged. The one round that could
+     only be tapped looked broken to a child who tried what the rest of the game
+     had taught him — he dragged a slice at the plate and it sprang back. */
+  it('fills a slot when he carries a slice up to the plate', () => {
+    render(<PlayScreen />);
+    dragPiece('piece drag');
+    expect(screen.getByTestId('slot-full')).toHaveTextContent('drag');
   });
 
   it('lets him take one back instead of wiping the plate for him', () => {
     /* It used to clear itself 700ms after a wrong arrangement, silently. He
        never saw what he had built, so he never saw what was wrong with it. */
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece on'));
-    fireEvent.click(screen.getByLabelText('piece drag'));
+    tapPiece('piece on');
+    tapPiece('piece drag');
     expect(screen.queryAllByTestId('slot-empty')).toHaveLength(0);
 
     fireEvent.click(screen.getByLabelText('the plate'));
@@ -109,25 +167,90 @@ describe('putting a roll back together', () => {
 
   it('says how to undo, once undoing is the only thing left to do', () => {
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece on'));
+    tapPiece('piece on');
     expect(screen.queryByText(/take one back/i)).toBeNull();
-    fireEvent.click(screen.getByLabelText('piece drag'));
+    tapPiece('piece drag');
     expect(screen.getByText(/take one back/i)).toBeInTheDocument();
   });
 
   it('cannot be fed until the slices spell the word', () => {
     // a wrong roll is not carryable — there is nothing to pick up
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece on'));
-    fireEvent.click(screen.getByLabelText('piece drag'));
-    expect(() => pan()).toThrow();
+    tapPiece('piece on');
+    tapPiece('piece drag');
+    expect(screen.queryByLabelText(/^the roll/)).toBeNull();
   });
 
   it('becomes a roll he can carry once it is right', () => {
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece drag'));
-    fireEvent.click(screen.getByLabelText('piece on'));
-    expect(() => pan()).not.toThrow();
+    tapPiece('piece drag');
+    tapPiece('piece on');
+    expect(screen.getByLabelText('the roll dragon')).toBeInTheDocument();
+  });
+
+  /* The round is two jobs and the second one was invisible: the pieces became a
+     roll on the plate and nothing said it was now his to carry. */
+  it('says out loud that it is finished and wants feeding', () => {
+    render(<PlayScreen />);
+    tapPiece('piece drag');
+    spoke.mockClear();
+    tapPiece('piece on');
+
+    const said = spoke.mock.calls.flat(2) as { play?: string; say?: string }[];
+    expect(said.some((b) => `${b?.play ?? ''}${b?.say ?? ''}`.match(/feed it to me/i))).toBe(
+      true,
+    );
+    expect(screen.getByText(/drag it up to the dragon/i)).toBeInTheDocument();
+  });
+});
+
+describe('choosing between words', () => {
+  /* A word he has met but does not hold yet: the dragon says one, and three
+     sushi are on the counter. */
+  beforeEach(() => situation('have', { seen: 2, recent: ['not-yet'] }));
+
+  it('puts three on the counter, whatever he knows', () => {
+    /* It used to widen from two to four. Two is a coin toss he wins half the
+       time without reading anything. */
+    render(<PlayScreen />);
+    expect(screen.getAllByLabelText(/piece /)).toHaveLength(3);
+  });
+
+  it('marks no letter green, because only the answer would have one', () => {
+    /* `have` is the only word here whose letters lie, so the dab of wasabi sat
+       on the right sushi and no other — the answer, in green, before he had
+       read a letter of any of them. */
+    render(<PlayScreen />);
+    expect(screen.queryAllByTestId('lying-letter')).toHaveLength(0);
+  });
+
+  it('still marks it while the word is being introduced', () => {
+    // there, and only there, a line underneath says what the mark means
+    situation('have', { seen: 0, recent: [] });
+    render(<PlayScreen />);
+    expect(screen.getAllByTestId('lying-letter').length).toBeGreaterThan(0);
+  });
+});
+
+describe('the dragon eating', () => {
+  it('keeps the piece on screen long enough to be swallowed', () => {
+    /* It used to blink out of existence the instant he let go, which never
+       looked like it had been eaten by anything. */
+    situation('have', { seen: 0, recent: [] });
+    render(<PlayScreen />);
+    act(() => void pan().dragTo(40));
+    expect(screen.getByLabelText('piece have')).toBeInTheDocument();
+  });
+
+  it('takes it off the counter once it is down', async () => {
+    situation('have', { seen: 0, recent: [] });
+    render(<PlayScreen />);
+    act(() => void pan().dragTo(40));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    expect(screen.queryByLabelText('piece have')).toBeNull();
   });
 });
 
@@ -234,26 +357,44 @@ describe('the front page', () => {
   });
 });
 
-describe('a dragon nobody has recorded a voice for', () => {
-  /* It used to say "the dragon can't speak yet" and refuse to play until a
-     grown-up had sat down and recorded something. A brand new app, opened by a
-     child, showed him a paragraph he could not read. The iPad has a voice; the
-     recording is the upgrade, not the entry fee. */
-  it('plays anyway, in the iPad’s own voice', () => {
+describe('which voice says the word', () => {
+  /* Three of them, worth different amounts to him. Yours, recorded on this
+     iPad. The dragon's own, recorded before the app was built. And the iPad
+     reading it, which is what a word typed in last night gets. It used to say
+     "the dragon can't speak yet" and refuse to play at all until a grown-up had
+     sat down with a microphone. */
+  it('plays with nothing recorded at all', () => {
     voiced = false;
+    recorded = false;
     render(<PlayScreen />);
 
     expect(screen.queryByText(/can.t speak/i)).toBeNull();
     expect(screen.getByLabelText('the plate')).toBeInTheDocument();
   });
 
-  it('asks the whole question out loud, since it is one voice throughout', async () => {
+  it('has the iPad read the question and the word as one line', async () => {
+    /* Half a sentence in a recorded voice and the other half in the iPad's is
+       two people finishing each other's sentence, which is worse than either. */
     voiced = false;
+    recorded = false;
     situation('dragon', { seen: 2, recent: ['got'] });
     render(<PlayScreen />);
 
     const beats = await asked();
-    expect(beats.some((b) => b?.say?.includes('dragon'))).toBe(true);
+    expect(beats.some((b) => b?.say?.endsWith('dragon'))).toBe(true);
+    expect(beats.some((b) => b?.play)).toBe(false);
+  });
+
+  it('plays the dragon’s own voice as two clips, question then word', async () => {
+    voiced = false;
+    recorded = true;
+    situation('dragon', { seen: 2, recent: ['got'] });
+    render(<PlayScreen />);
+
+    const beats = await asked();
+    expect(beats.some((b) => b?.play === 'clip:dragon')).toBe(true);
+    expect(beats.some((b) => b?.play?.startsWith('clip:') && b.play !== 'clip:dragon')).toBe(true);
+    expect(beats.some((b) => b?.say)).toBe(false);
   });
 
   it('uses your recording where there is one, and says nothing else over it', async () => {
@@ -264,6 +405,66 @@ describe('a dragon nobody has recorded a voice for', () => {
     const beats = await asked();
     expect(beats.some((b) => b?.play === 'file:///dragon.m4a')).toBe(true);
     expect(beats.some((b) => b?.say)).toBe(false);
+  });
+});
+
+describe('the dragon saying hello', () => {
+  /* The game used to open by demanding a word, which is a game that opened in
+     the middle of itself. */
+  it('greets whoever has just sat down, before the first question', async () => {
+    voiced = false;
+    recorded = false;
+    situation('dragon', { seen: 2, recent: ['got'] });
+    render(<PlayScreen />);
+
+    const beats = await asked();
+    expect(beats[0]?.say).toMatch(/hello|there you are/i);
+    expect(beats.some((b) => b?.say?.endsWith('dragon'))).toBe(true);
+  });
+
+  it('does not say it again in the middle of a meal', async () => {
+    voiced = false;
+    recorded = false;
+    // two rounds of one word he has never met: one piece on the counter each time
+    profile = {
+      ...blankProfile(),
+      introSeen: true,
+      stats: {},
+      settings: { ...blankProfile().settings, roundsPerMeal: 2, parentCheck: true },
+    };
+    dictionary = [makeWord('have')];
+    render(<PlayScreen />);
+    await asked();
+
+    spoke.mockClear();
+    act(() => void pan().dragTo(40));
+    await settle(2500);
+
+    const beats = spoke.mock.calls.flat(2) as { play?: string; say?: string }[];
+    expect(beats.some((b) => b?.say?.match(/hello|there you are/i))).toBe(false);
+    expect(beats.some((b) => b?.say?.endsWith('have'))).toBe(true);
+  });
+});
+
+describe('the way the dragon words its question', () => {
+  it('does not ask for the second word the way it asked for the first', async () => {
+    /* "A new word. This one says …" arrived twice a meal, every meal, in the
+       same eight words. A sentence he can predict is one he stops listening to,
+       and the word is on the end of it. */
+    voiced = false;
+    recorded = false;
+    situation('dragon', { seen: 2, recent: ['got'] });
+    render(<PlayScreen />);
+    const first = (await asked()).find((b) => b?.say)?.say;
+
+    // the wording rotates with the meal, so the next meal opens differently
+    spoke.mockClear();
+    profile = { ...profile, mealsCompleted: profile.mealsCompleted + 1 };
+    render(<PlayScreen />);
+    const second = (await asked()).find((b) => b?.say)?.say;
+
+    expect(first).toBeTruthy();
+    expect(second).not.toBe(first);
   });
 });
 
@@ -282,7 +483,7 @@ describe('coming back from the grown-ups’ side', () => {
   it('leaves a meal in progress alone when nothing has changed', () => {
     // coming back from the word list must not wipe the plate he was filling
     render(<PlayScreen />);
-    fireEvent.click(screen.getByLabelText('piece drag'));
+    tapPiece('piece drag');
     expect(screen.getByTestId('slot-full')).toHaveTextContent('drag');
 
     act(() => refocus());
@@ -297,7 +498,7 @@ describe('saying what the game wants', () => {
     profile = { ...profile, introSeen: false };
     render(<PlayScreen />);
 
-    expect(screen.getByText(/feed the dragon words/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('start playing')).toBeInTheDocument();
     expect(screen.queryByLabelText('the plate')).toBeNull();
 
     fireEvent.click(screen.getByLabelText('start playing'));
@@ -307,7 +508,7 @@ describe('saying what the game wants', () => {
 
   it('never shows it again', () => {
     render(<PlayScreen />);
-    expect(screen.queryByText(/feed the dragon words/i)).toBeNull();
+    expect(screen.queryByLabelText('start playing')).toBeNull();
   });
 
   it('says what to do in the round he is in', () => {
@@ -319,14 +520,17 @@ describe('saying what the game wants', () => {
     expect(screen.getByText(/read it out loud/i)).toBeInTheDocument();
   });
 
-  it('says what the green letter is doing, while the word is being introduced', () => {
+  it('names the green letter, and says it in plain words', () => {
     /* The mark is the most useful thing the game knows about a word like
-       `have`, and the sentence explaining it sat unread in the word list. */
+       `have`, and it was explained in phonics notation — `the “e” says /u/` —
+       which is unreadable to a parent who has never taught reading. */
     profile = { ...blankProfile(), introSeen: true, stats: {} };
-    dictionary = [makeWord('have')];
+    dictionary = [makeWord('come')];
     render(<PlayScreen />);
 
-    expect(screen.getByText(/the “e” does nothing/i)).toBeInTheDocument();
+    expect(screen.getByText(/the green “o”/i)).toBeInTheDocument();
+    expect(screen.getByText(/like the u in cup/i)).toBeInTheDocument();
+    expect(screen.queryByText(/\/u\//)).toBeNull();
   });
 
   it('does not explain a word with nothing odd about it', () => {
@@ -334,7 +538,7 @@ describe('saying what the game wants', () => {
     dictionary = [makeWord('dragon')];
     render(<PlayScreen />);
 
-    expect(screen.queryByText(/^the “/)).toBeNull();
+    expect(screen.queryByText(/the green/i)).toBeNull();
   });
 
   it('labels the three buttons as a question for the grown-up', () => {

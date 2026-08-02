@@ -5,6 +5,23 @@ import { defineConfig } from 'vitest/config';
 const at = (p: string) => resolve(__dirname, p);
 
 /**
+ * The one stub both suites need.
+ *
+ * `src/game/icloud.ts` asks the native module for itself, which off the device
+ * means asking `expo` for something that is not there. It is written to cope
+ * with that and hand back nothing — but nothing is not a thing a test can put a
+ * second device's file into. The stub is an iCloud made of two Maps.
+ *
+ * Two entries, because an alias is matched against what the importer wrote, not
+ * against the file it lands on: the screens say `@/game/icloud` and `cloud.ts`,
+ * sitting beside it, says `./icloud`.
+ */
+const icloud = [
+  { find: /^\.\/icloud$/, replacement: at('test/stubs/icloud.ts') },
+  { find: /^@\/game\/icloud$/, replacement: at('test/stubs/icloud.ts') },
+];
+
+/**
  * Two suites, because there are two kinds of thing to be wrong about.
  *
  * `core` is the game's thinking — how a word is cut up, which words rhyme with
@@ -27,6 +44,7 @@ export default defineConfig({
   test: {
     projects: [
       {
+        resolve: { alias: icloud },
         test: {
           name: 'core',
           environment: 'node',
@@ -43,6 +61,8 @@ export default defineConfig({
                parse them as JavaScript and fails on the first one that isn't
                ASCII. */
             { find: /^.*\.m4a$/, replacement: at('test/stubs/sound.ts') },
+            // before the `@/` rule below, which would otherwise claim it
+            ...icloud,
             { find: /^@\//, replacement: `${at('src')}/` },
             { find: 'react-native-gesture-handler', replacement: at('test/stubs/gesture-handler.tsx') },
             { find: 'react-native-reanimated', replacement: at('test/stubs/reanimated.tsx') },

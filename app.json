@@ -58,7 +58,7 @@
         }
       ],
       "expo-audio",
-      "expo-sharing"
+      "./modules/sushi-icloud/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": true,

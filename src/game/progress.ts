@@ -54,6 +54,16 @@ export interface DragonProfile {
   /** the grown-up has been told how the game works, once, at the start */
   introSeen: boolean;
   settings: DragonSettings;
+  /**
+   * When a grown-up last changed a setting.
+   *
+   * Everything else about a profile merges by taking the larger number, which
+   * is right for counters and wrong for choices: `four words a sitting` is not
+   * a bigger version of six, it is a decision somebody made about a particular
+   * child on a particular evening. So the settings travel together, and the
+   * most recent decision wins outright.
+   */
+  settingsAt: string;
 }
 
 export function blankProfile(): DragonProfile {
@@ -67,6 +77,8 @@ export function blankProfile(): DragonProfile {
     dayStreak: 0,
     introSeen: false,
     settings: { roundsPerMeal: 6, parentCheck: true },
+    // never chosen, so any real choice on any device outranks it
+    settingsAt: '',
   };
 }
 

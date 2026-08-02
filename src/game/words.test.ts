@@ -27,6 +27,18 @@ describe('makeWord', () => {
     expect(w.source).toBe('the bedtime book');
     expect(w.addedAt).toBe('2026-07-29');
   });
+
+  it('stamps the moment, not the day', () => {
+    /* Two iPads settle an argument about a word by which copy is newer. A date
+       ties whenever both were edited the same day, and a tie is settled by
+       whichever device happened to sync last — which is not a rule, it is a
+       coin. */
+    expect(makeWord('dragon').updatedAt).toMatch(/T.*Z$/);
+  });
+
+  it('starts a word with no recording', () => {
+    expect(makeWord('dragon').voiceKey).toBeNull();
+  });
 });
 
 describe('reseam', () => {
@@ -35,6 +47,11 @@ describe('reseam', () => {
     const fixed = reseam(w, ['ti', 'ger']);
     expect(fixed.chunks).toEqual(['ti', 'ger']);
     expect(fixed.text).toBe('tiger');
+  });
+
+  it('counts as a change, so the corrected seam wins on the other iPad', () => {
+    const w = { ...makeWord('tiger'), updatedAt: '2020-01-01T00:00:00.000Z' };
+    expect(reseam(w, ['ti', 'ger']).updatedAt > w.updatedAt).toBe(true);
   });
 
   it('refuses pieces that do not spell the word', () => {
@@ -109,5 +126,15 @@ describe('the starter dictionary', () => {
 
   it('gives every word pieces that spell it', () => {
     for (const w of starterDictionary()) expect(w.chunks.join('')).toBe(w.text);
+  });
+
+  it('is dated when it was written, so a word you deleted stays deleted', () => {
+    /* A second iPad seeds this list before it has heard from iCloud. Stamped
+       `now`, every seeded word would out-date the note saying you threw `was`
+       away last month, and `was` would come back — on both devices, because the
+       merge would agree it was the newer fact. */
+    for (const w of starterDictionary()) {
+      expect(w.updatedAt.startsWith('2026-07-29'), w.text).toBe(true);
+    }
   });
 });

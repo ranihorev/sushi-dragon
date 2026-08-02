@@ -53,6 +53,15 @@ export interface Word {
   voiceKey: string | null;
 }
 
+/**
+ * The words you threw away, and when.
+ *
+ * It lives here beside the word rather than beside the file it is stored in,
+ * because both the storage and the merge need it and neither should have to
+ * reach through the other to get at it.
+ */
+export type Tombstones = Record<string, string>;
+
 export interface NewWord {
   source?: string;
   addedAt?: string;

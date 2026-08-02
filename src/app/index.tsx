@@ -12,6 +12,7 @@ import { SayAgain } from '@/components/SayAgain';
 import { Sushi } from '@/components/Sushi';
 import { carrierFor, greetingFor, READY, wholeQuestion } from '@/game/asking';
 import * as audio from '@/game/audio';
+import * as cloud from '@/game/cloud';
 import { isCorrectPick, planMeal, type Round, type RoundKind } from '@/game/engine';
 import { hoard, noteSession, recordPick, recordRead, type Verdict } from '@/game/progress';
 import * as store from '@/game/storage';
@@ -322,6 +323,10 @@ export default function PlayScreen() {
           const done = { ...updated, mealsCompleted: updated.mealsCompleted + 1 };
           store.saveProfile(done);
           setProfile(done);
+          /* The end of a meal is the natural moment to tell the other device
+             what he managed. Not every round: a sync per round would be a lot
+             of talking about a child who is still chewing. */
+          void cloud.sync();
           setFinished(true);
           setResting(true);
           // the end of a meal should sound like the end of something

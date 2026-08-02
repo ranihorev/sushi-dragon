@@ -1,0 +1,9 @@
+{
+  "name": "sushi-icloud",
+  "version": "1.0.0",
+  "description": "The app's own corner of iCloud, and a coordinated way to read and write it.",
+  "license": "UNLICENSED",
+  "author": "",
+  "homepage": "",
+  "private": true
+}

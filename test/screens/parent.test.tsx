@@ -19,13 +19,29 @@ vi.mock('@/game/storage', () => ({
   hasVoice: () => false,
   voiceFile: (w: string) => ({ uri: `file:///${w}.m4a` }),
   forgetRecording: (w: string) => forgot(w),
-  exportAll: () => '{}',
-  importAll: vi.fn(),
+  /* The real one also writes down that the removal was meant, which is what
+     stops the other iPad handing the word straight back. That part is the
+     merge's business and is tested there; here it stands in for the two
+     things the screen used to do by hand. */
+  removeWord: (w: string, list: Word[]) => {
+    forgot(w);
+    const next = list.filter((x) => x.text !== w);
+    saved(next);
+    return next;
+  },
 }));
 
-vi.mock('expo-document-picker', () => ({ getDocumentAsync: vi.fn() }));
-vi.mock('expo-sharing', () => ({ shareAsync: vi.fn() }));
-vi.mock('expo-file-system', () => ({ File: class {}, Paths: { cache: '' } }));
+/* The sync itself is tested against a fake iCloud in `test/cloud.test.ts`.
+   What this screen owes is a line a grown-up can read. */
+let syncState = { on: true, busy: false, at: '', waiting: 0 };
+const syncNow = vi.fn();
+
+vi.mock('@/game/cloud', () => ({
+  current: () => syncState,
+  watch: () => () => {},
+  sync: () => syncNow(),
+}));
+
 
 const { default: ParentScreen } = await import('@/app/dragon/parent');
 
@@ -54,7 +70,42 @@ beforeEach(() => {
   profile = blankProfile();
   saved.mockClear();
   forgot.mockClear();
+  syncNow.mockClear();
+  syncState = { on: true, busy: false, at: '', waiting: 0 };
   vi.spyOn(Alert, 'alert').mockImplementation(() => {});
+});
+
+describe('the iCloud line', () => {
+  /* An iPad with no iCloud account is not broken, but it is also not going to
+     receive the word somebody just added on the phone — and the only place that
+     can be said is here. */
+  it('says where to go when iCloud is off', () => {
+    syncState = { on: false, busy: false, at: '', waiting: 0 };
+    render(<ParentScreen />);
+
+    expect(screen.getByText(/iCloud is off/)).toBeInTheDocument();
+  });
+
+  it('says when it last checked', () => {
+    syncState = { on: true, busy: false, at: new Date().toISOString(), waiting: 0 };
+    render(<ParentScreen />);
+
+    expect(screen.getByText(/synced just now/)).toBeInTheDocument();
+  });
+
+  it('mentions a recording that has not landed, since the dragon will not have it', () => {
+    syncState = { on: true, busy: false, at: new Date().toISOString(), waiting: 2 };
+    render(<ParentScreen />);
+
+    expect(screen.getByText(/2 recordings still coming/)).toBeInTheDocument();
+  });
+
+  it('checks again when tapped', () => {
+    render(<ParentScreen />);
+    fireEvent.click(screen.getByLabelText('check iCloud now'));
+
+    expect(syncNow).toHaveBeenCalled();
+  });
 });
 
 describe('taking a word off the list', () => {

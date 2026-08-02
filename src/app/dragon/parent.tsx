@@ -1,12 +1,10 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system';
 import { Link } from 'expo-router';
-import * as Sharing from 'expo-sharing';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SwipeAway } from '@/components/SwipeAway';
+import * as cloud from '@/game/cloud';
 import { grip, isSolid, statFor, type DragonProfile } from '@/game/progress';
 import * as store from '@/game/storage';
 import type { Word } from '@/game/words';
@@ -24,26 +22,45 @@ export default function ParentScreen() {
   const [words, setWords] = useState<Word[]>(() => store.loadDictionary());
   const [profile, setProfile] = useState<DragonProfile>(() => store.loadProfile());
 
+  const [sync, setSync] = useState<cloud.SyncState>(() => cloud.current());
+
   const refresh = useCallback(() => {
     setWords(store.loadDictionary());
     setProfile(store.loadProfile());
   }, []);
 
+  /* This is the screen a word arrives on. Somebody adds one on the phone, walks
+     into the next room, and is looking at exactly the list that is about to
+     change — so it reads itself again when a sync lands rather than waiting to
+     be closed and reopened. */
+  useEffect(
+    () =>
+      cloud.watch((next) => {
+        setSync(next);
+        if (!next.busy) refresh();
+      }),
+    [refresh],
+  );
+
   const setSetting = <K extends keyof DragonProfile['settings']>(
     key: K,
     value: DragonProfile['settings'][K],
   ) => {
-    const next = { ...profile, settings: { ...profile.settings, [key]: value } };
+    /* Stamped, because the other iPad has settings too and they are choices
+       rather than counters — the newer decision wins, and without a time on it
+       there is no such thing as newer. */
+    const next = {
+      ...profile,
+      settings: { ...profile.settings, [key]: value },
+      settingsAt: new Date().toISOString(),
+    };
     setProfile(next);
     store.saveProfile(next);
   };
 
-  const drop = (word: Word) => {
-    store.forgetRecording(word.text);
-    const next = words.filter((w) => w.text !== word.text);
-    store.saveDictionary(next);
-    setWords(next);
-  };
+  /* `removeWord` also writes down that you meant it. Without that note the
+     other iPad, which still has the word, hands it straight back. */
+  const drop = (word: Word) => setWords(store.removeWord(word.text, words));
 
   /* There is a confirmation because the recording goes with the word and a
      recording cannot be got back. The button, on the other hand, is right there
@@ -54,41 +71,6 @@ export default function ParentScreen() {
     Alert.alert(`Remove “${word.text}”?`, 'Its recording goes with it.', [
       { text: 'Keep it', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => drop(word) },
-    ]);
-  };
-
-  /* Save to Files → iCloud Drive and the list survives anything, including
-     deleting the app. The recordings ride along inside the same file, because
-     they are the one part you cannot regenerate. */
-  const backup = async () => {
-    try {
-      const file = new File(Paths.cache, 'sushi-dragon-backup.json');
-      if (file.exists) file.delete();
-      file.create();
-      file.write(store.exportAll());
-      await Sharing.shareAsync(file.uri, { mimeType: 'application/json' });
-    } catch (error) {
-      Alert.alert('Could not make a backup', String(error));
-    }
-  };
-
-  const restore = async () => {
-    const picked = await DocumentPicker.getDocumentAsync({ type: 'application/json' });
-    if (picked.canceled) return;
-    Alert.alert('Restore from this file?', 'It replaces the current words and progress.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Restore',
-        style: 'destructive',
-        onPress: () => {
-          try {
-            store.importAll(new File(picked.assets[0].uri).textSync());
-            refresh();
-          } catch (error) {
-            Alert.alert('That file could not be read', String(error));
-          }
-        },
-      },
     ]);
   };
 
@@ -235,22 +217,58 @@ export default function ParentScreen() {
           minutes. Stop before he wants to stop.
         </Text>
 
-        <Text style={styles.section}>Backup</Text>
+        <Text style={styles.section}>iCloud</Text>
+        <Pressable
+          onPress={() => void cloud.sync()}
+          accessibilityRole="button"
+          accessibilityLabel="check iCloud now"
+        >
+          <Text style={styles.hint}>{syncLine(sync)}</Text>
+        </Pressable>
+        {/* There used to be a `Save a copy` / `Restore` pair here, and the
+            reason it is gone is not that iCloud replaced it — it is that a
+            backup somebody has to remember to take is a backup nobody has. What
+            it protected against, iCloud now holds all the time and on more than
+            one device. */}
         <Text style={styles.hint}>
-          The words and progress are already included in the iPad&apos;s iCloud backup. This is the
-          copy you keep somewhere you choose — Files → iCloud Drive works well.
+          Words, progress and your recordings travel between every device signed into the same
+          iCloud account — add a word on your phone at bedtime and it is on the iPad. Each device
+          keeps a whole copy, so a lost or replaced iPad costs you nothing. Tap the line above to
+          check now.
         </Text>
-        <View style={styles.row}>
-          <Pressable style={styles.secondary} onPress={backup} accessibilityRole="button">
-            <Text style={styles.secondaryText}>Save a copy</Text>
-          </Pressable>
-          <Pressable style={styles.secondary} onPress={restore} accessibilityRole="button">
-            <Text style={styles.secondaryText}>Restore</Text>
-          </Pressable>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+/**
+ * What the sync is doing, in one line a tired adult can act on.
+ *
+ * Signed out is the only one of these that asks anything of anybody, so it is
+ * the only one that says where to go. The rest are there to answer the single
+ * question this screen gets asked — *has the word I just added arrived?* — and
+ * a recording still on its way is worth mentioning, because the dragon will be
+ * reading that word in the iPad's own voice until it lands.
+ */
+function syncLine(state: cloud.SyncState): string {
+  if (!state.on) return 'iCloud is off — turn it on in Settings to share with another device';
+  if (state.busy) return 'iCloud · checking…';
+  if (!state.at) return 'iCloud · not checked yet';
+
+  const waiting = state.waiting ? ` · ${state.waiting} recording${plural(state.waiting)} still coming` : '';
+  return `iCloud · synced ${ago(state.at)}${waiting}`;
+}
+
+const plural = (n: number) => (n === 1 ? '' : 's');
+
+function ago(at: string): string {
+  const minutes = Math.floor((Date.now() - new Date(at).getTime()) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} minute${plural(minutes)} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${plural(hours)} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${plural(days)} ago`;
 }
 
 const styles = StyleSheet.create({
@@ -312,14 +330,4 @@ const styles = StyleSheet.create({
   },
   stepOn: { backgroundColor: LANTERN },
   stepText: { color: NIGHT, fontWeight: '700' },
-  row: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  secondary: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,248,231,0.25)',
-  },
-  secondaryText: { color: CREAM, fontSize: 15 },
 });

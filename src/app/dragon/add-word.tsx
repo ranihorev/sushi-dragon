@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SeamEditor } from '@/components/SeamEditor';
 import { Sushi } from '@/components/Sushi';
+import * as cloud from '@/game/cloud';
 import { hearOnce } from '@/game/playback';
 import { leave } from '@/leaving';
 import * as store from '@/game/storage';
@@ -94,7 +95,14 @@ export default function AddWordScreen() {
     const dictionary = store.loadDictionary();
     const existing = dictionary.findIndex((w) => w.text === word.text);
 
-    const entry: Word = { ...word, source, voice: take ? 'recorded' : 'none' };
+    /* The recording is filed before the word is, because the word has to carry
+       the name of it. Editing a word without recording a new take keeps the
+       take that is already there — it is on the other iPad under that name. */
+    const voiceKey = take
+      ? store.keepRecording(word.text, take)
+      : (dictionary[existing]?.voiceKey ?? null);
+
+    const entry: Word = { ...word, source, voice: take ? 'recorded' : 'none', voiceKey };
     const next = [...dictionary];
     if (existing >= 0) next[existing] = entry;
     else next.push(entry);
@@ -109,7 +117,10 @@ export default function AddWordScreen() {
     }
 
     store.saveDictionary(next);
-    if (take) store.keepRecording(word.text, take);
+    /* Not waited for. This is the bedtime moment the whole screen is built
+       around, and the word is already on this device — whether it has reached
+       the iPad yet is not a reason to keep anybody standing here. */
+    void cloud.sync();
     leave();
   };
 

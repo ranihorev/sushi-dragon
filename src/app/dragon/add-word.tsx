@@ -62,8 +62,13 @@ export default function AddWordScreen() {
     return chunks.length && chunks.join('') === built.text ? reseam(built, chunks) : built;
   }, [text, chunks]);
 
-  // a fresh word gets fresh seams, until you move one yourself
-  useEffect(() => setChunks([]), [text]);
+  /* A fresh word gets fresh seams, until you move one yourself. Done as you
+     type rather than in an effect watching the word, because typing is the only
+     thing that can make the old cuts wrong. */
+  const retype = (typed: string) => {
+    setText(typed);
+    setChunks([]);
+  };
 
   const kin = relatives(word.text);
 
@@ -130,7 +135,7 @@ export default function AddWordScreen() {
         <TextInput
           style={styles.input}
           value={text}
-          onChangeText={setText}
+          onChangeText={retype}
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="dragon"

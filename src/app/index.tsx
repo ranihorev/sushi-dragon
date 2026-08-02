@@ -54,8 +54,14 @@ const SWALLOW_MS = 340;
  */
 export default function PlayScreen() {
   const [profile, setProfile] = useState(() => store.loadProfile());
+  /* The profile as it stands now, for the handlers and timers that read it long
+     after the render that made them. Written in an effect rather than during
+     render, because a render can be abandoned and run again — and this one is
+     the value the game saves to disk. */
   const profileRef = useRef(profile);
-  profileRef.current = profile;
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   const [meal, setMeal] = useState<Round[]>(() =>
     planMeal(store.loadProfile(), store.loadDictionary()),
@@ -90,7 +96,9 @@ export default function PlayScreen() {
   /* What the focus effect below needs to know, without it having to re-run
      every time one of them changes. */
   const alive = useRef({ resting });
-  alive.current = { resting };
+  useEffect(() => {
+    alive.current = { resting };
+  }, [resting]);
 
   /** The word list the meal on screen was dealt from, to notice a new one. */
   const dealtFrom = useRef('');
@@ -108,6 +116,9 @@ export default function PlayScreen() {
 
   useEffect(() => {
     void audio.prepare();
+    /* The same array `after` pushes into for the life of the screen — held
+       here because the ref itself is gone by the time this cleans up. */
+    const pending = timers.current;
     // the day counter only means anything if something marks the days
     const noted = noteSession(profileRef.current);
     if (noted !== profileRef.current) {
@@ -115,7 +126,7 @@ export default function PlayScreen() {
       setProfile(noted);
     }
     return () => {
-      timers.current.forEach(clearTimeout);
+      pending.forEach(clearTimeout);
       audio.stop();
     };
   }, []);
@@ -195,14 +206,27 @@ export default function PlayScreen() {
     [turn, voiceOf],
   );
 
-  useEffect(() => {
-    if (!round || resting) return;
+  /**
+   * Everything the counter forgets when a new round starts.
+   *
+   * Called where a round is chosen, rather than from an effect watching the
+   * round number. Watching it drew the new round once with the last one's plate
+   * still on it — and one frame of the previous answer is a frame he is looking
+   * straight at.
+   */
+  const clearCounter = useCallback(() => {
     setPlate([]);
     setEaten([]);
     setGoing('');
     setMissed(false);
     setAwaitingCheck(false);
     setMood('idle');
+  }, []);
+
+  /* What is left of the round intro once the counter clears itself: the dragon
+     speaking, which is a thing outside React and belongs in an effect. */
+  useEffect(() => {
+    if (!round || resting) return;
 
     // the dragon greets whoever has just sat down, once per meal
     const lead = at === 0 ? hello() : [];
@@ -227,12 +251,16 @@ export default function PlayScreen() {
   }, []);
 
   /** Deal a fresh meal from the word list as it stands right now. */
-  const plan = useCallback((from: typeof profile, dictionary: Word[]) => {
-    dealtFrom.current = dictionary.map((w) => w.text).join(' ');
-    setMeal(planMeal(from, dictionary));
-    setAt(0);
-    setServed((n) => n + 1);
-  }, []);
+  const plan = useCallback(
+    (from: typeof profile, dictionary: Word[]) => {
+      dealtFrom.current = dictionary.map((w) => w.text).join(' ');
+      clearCounter();
+      setMeal(planMeal(from, dictionary));
+      setAt(0);
+      setServed((n) => n + 1);
+    },
+    [clearCounter],
+  );
 
   /** Another meal, chosen fresh — his word list has moved on since this one. */
   const serve = useCallback(() => {
@@ -289,7 +317,7 @@ export default function PlayScreen() {
       store.saveProfile(updated);
 
       after(ROUND_GAP_MS, () => {
-        setMood('idle');
+        clearCounter();
         if (at + 1 >= meal.length) {
           const done = { ...updated, mealsCompleted: updated.mealsCompleted + 1 };
           store.saveProfile(done);
@@ -303,7 +331,7 @@ export default function PlayScreen() {
         }
       });
     },
-    [after, at, meal.length, served],
+    [after, at, clearCounter, meal.length, served],
   );
 
   const feed = useCallback(

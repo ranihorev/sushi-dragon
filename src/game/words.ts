@@ -12,7 +12,7 @@ import { chunk } from './chunk';
 import { familyOf, relatives } from './families';
 import { trickySpan } from './tricky';
 
-/** Where the spoken word comes from. The audio itself lives in IndexedDB. */
+/** Where the spoken word comes from. The audio itself lives in a file beside it. */
 export type Voice =
   /** a parent said it into the tablet — the good case */
   | 'recorded'
@@ -33,33 +33,56 @@ export interface Word {
   source: string;
   addedAt: string;
   voice: Voice;
+  /**
+   * When this word was last changed, to the millisecond — how two iPads settle
+   * an argument about it. `addedAt` is a date and cannot do the job: two edits
+   * on the same day would tie, and a tie has to be broken by something, which
+   * in practice means by whichever device happened to sync last.
+   */
+  updatedAt: string;
+  /**
+   * The name of its recording in iCloud, if it has one.
+   *
+   * Not `<word>.m4a`. A name that two devices both want to write is a name
+   * iCloud has to resolve a conflict over, and its idea of resolving one is to
+   * keep both and ask somebody. So every recording gets a name nothing else
+   * will ever claim, and is written exactly once. Locally the file is still
+   * plainly `voice/<word>.m4a` — the unique name is a cloud-side concern, and
+   * the game does not need to know about it.
+   */
+  voiceKey: string | null;
 }
 
 export interface NewWord {
   source?: string;
   addedAt?: string;
   voice?: Voice;
+  updatedAt?: string;
+  voiceKey?: string | null;
   /** override the computed seams, for a word the chunker got wrong */
   chunks?: string[];
 }
 
 export function makeWord(text: string, opts: NewWord = {}): Word {
   const clean = text.toLowerCase().trim().replace(/[^a-z']/g, '');
+  const addedAt = opts.addedAt ?? new Date().toISOString().slice(0, 10);
   return {
     text: clean,
     chunks: opts.chunks ?? chunk(clean),
     tricky: trickySpan(clean),
     family: familyOf(clean),
     source: opts.source ?? '',
-    addedAt: opts.addedAt ?? new Date().toISOString().slice(0, 10),
+    addedAt,
     voice: opts.voice ?? 'none',
+    updatedAt: opts.updatedAt ?? new Date().toISOString(),
+    voiceKey: opts.voiceKey ?? null,
   };
 }
 
 /** Move a seam, keeping everything else about the word intact. */
 export function reseam(word: Word, chunks: string[]): Word {
   if (chunks.join('') !== word.text) throw new Error('the pieces must spell the word');
-  return { ...word, chunks };
+  return { ...word, chunks, updatedAt: new Date().toISOString() };
 }
 
 /**
@@ -99,5 +122,19 @@ export const STARTER_WORDS = [
   'dragon', 'sushi',
 ];
 
+/**
+ * The seeded words are stamped with the day the starter list was written, not
+ * with today.
+ *
+ * That is what stops a deleted word walking back in. Install the app on a
+ * second iPad and it seeds this list before it has heard from iCloud; if those
+ * words were stamped `now` they would out-date the note saying you threw `was`
+ * away last month, and `was` would return — on both devices, because the merge
+ * would agree it was the newer fact. Stamped 2026-07-29 they lose that argument
+ * every time, which is the right answer, since a seeded word carries no
+ * intention behind it and a deletion carries yours.
+ */
 export const starterDictionary = (addedAt = '2026-07-29'): Word[] =>
-  STARTER_WORDS.map((w) => makeWord(w, { source: 'starter', addedAt }));
+  STARTER_WORDS.map((w) =>
+    makeWord(w, { source: 'starter', addedAt, updatedAt: `${addedAt}T00:00:00.000Z` }),
+  );

@@ -31,7 +31,7 @@ import ExpoModulesCore
 
    the entitlements, above
    the iCloud capability, enabled on the App ID
-   an iCloud container named `iCloud.com.sushidragon.app`, linked to that App ID
+   an iCloud container named `iCloud.com.sushidragon`, linked to that App ID
 
  The container is the one to suspect. It cannot be made through the App Store
  Connect API — there is no such resource — so neither a CI job nor an API key

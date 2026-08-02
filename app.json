@@ -19,8 +19,8 @@
       "bundleIdentifier": "com.sushidragon.app",
       "requireFullScreen": true,
       "entitlements": {
-        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.sushidragon.app"],
-        "com.apple.developer.ubiquity-container-identifiers": ["iCloud.com.sushidragon.app"],
+        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.sushidragon"],
+        "com.apple.developer.ubiquity-container-identifiers": ["iCloud.com.sushidragon"],
         "com.apple.developer.icloud-services": ["CloudDocuments"]
       },
       "infoPlist": {

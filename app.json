@@ -18,6 +18,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.sushidragon.app",
       "requireFullScreen": true,
+      "entitlements": {
+        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.sushidragon.app"],
+        "com.apple.developer.ubiquity-container-identifiers": ["iCloud.com.sushidragon.app"],
+        "com.apple.developer.icloud-services": ["CloudDocuments"]
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "So you can record a word in your own voice for the dragon to say."
@@ -57,8 +62,7 @@
           "imageWidth": 220
         }
       ],
-      "expo-audio",
-      "./modules/sushi-icloud/app.plugin.js"
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

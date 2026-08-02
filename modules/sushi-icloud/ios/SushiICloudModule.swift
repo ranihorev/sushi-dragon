@@ -19,6 +19,33 @@ import ExpoModulesCore
  Everything also lives under `Data/`, not `Documents/`. Documents would put the
  whole thing in the Files app, where it is one absent-minded tidy-up away from
  being the words your child was learning last month.
+
+ None of this works without the iCloud entitlements, which are declared longhand
+ in `app.json` under `ios.entitlements`. They belong to this module rather than
+ to the app, and a config plugin here would say so — but `ios.entitlements` is
+ the field Expo and EAS both read first, and after a long afternoon of signing
+ failures the boring option won.
+
+ Three things have to be true before a build will sign, and only the first is in
+ this repository:
+
+   the entitlements, above
+   the iCloud capability, enabled on the App ID
+   an iCloud container named `iCloud.com.sushidragon.app`, linked to that App ID
+
+ The container is the one to suspect. It cannot be made through the App Store
+ Connect API — there is no such resource — so neither a CI job nor an API key
+ can create it, and Xcode and `eas credentials` reach it through an interior
+ Apple API that wants a real login. Made by hand once, in the developer portal,
+ it stays made.
+
+ Two more things about EAS, both learned the slow way. It needs
+ `EXPO_APPLE_TEAM_ID` alongside the App Store Connect key or it will not talk to
+ Apple at all — and it does not say so, it says `All credentials are ready to
+ build` and hands over whichever provisioning profile it saw last, however old.
+ And that behaviour is version-dependent: eas-cli 18 skipped Apple silently
+ where 21 authenticates. If a build fails on missing entitlements that plainly
+ exist, the profile is stale and nobody checked it.
  */
 public class SushiICloudModule: Module {
   private var cachedContainer: URL?

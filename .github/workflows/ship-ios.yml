@@ -35,23 +35,20 @@ jobs:
   ship:
     runs-on: ubuntu-latest
     env:
-      # Read by eas-cli directly, so the build works even if the action's
-      # export does nothing. EXPO_TOKEN must be a *repository* secret: an
-      # *environment* secret reads as "" unless the job declares `environment:`.
+      # How eas-cli signs in when nobody can answer a prompt: it reads this
+      # variable itself. It must be a *repository* secret — an *environment*
+      # secret reads as "" unless the job declares `environment:`, and eas then
+      # asks you to log in, in a place where you cannot.
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      # Where the next step writes the key. scripts/ship.sh takes this over its
-      # own default, which points at a home directory no runner has. It sits
-      # outside the checkout, so the copy of the project that goes to the build
-      # server cannot carry the key with it.
-      EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc_api_key.p8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.11.0
+      # No version here on purpose: the action reads `packageManager` from
+      # package.json, so the pnpm version stays written down in one place.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      # pnpm must already be on the runner, or `cache: pnpm` finds no store.
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -66,15 +63,23 @@ jobs:
       # eas.json points the submit profile at the key on a development machine.
       # Write the key from the secret and aim the profile at it for this run
       # only — the working tree is thrown away when the job ends.
+      #
+      # The key goes in $RUNNER_TEMP, outside the checkout, so the copy of the
+      # project that goes to the build server cannot carry it. The path reaches
+      # the next step through $GITHUB_ENV, where scripts/ship.sh reads it in
+      # place of its own default — a home directory no runner has. It cannot be
+      # set in the job `env:` above, because $RUNNER_TEMP is not known there.
       - name: Provision the App Store Connect key
         run: |
+          EXPO_ASC_API_KEY_PATH="$RUNNER_TEMP/asc_api_key.p8"
           echo "${{ secrets.ASC_API_KEY_BASE64 }}" | base64 --decode > "$EXPO_ASC_API_KEY_PATH"
-          node -e '
+          EXPO_ASC_API_KEY_PATH="$EXPO_ASC_API_KEY_PATH" node -e '
             const fs = require("fs");
             const eas = JSON.parse(fs.readFileSync("eas.json", "utf8"));
             eas.submit.production.ios.ascApiKeyPath = process.env.EXPO_ASC_API_KEY_PATH;
             fs.writeFileSync("eas.json", JSON.stringify(eas, null, 2) + "\n");
           '
+          echo "EXPO_ASC_API_KEY_PATH=$EXPO_ASC_API_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build and submit to the App Store
         run: |

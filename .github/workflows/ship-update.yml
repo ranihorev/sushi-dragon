@@ -38,18 +38,20 @@ jobs:
   update:
     runs-on: ubuntu-latest
     env:
-      # Read by eas-cli directly, so the publish works even if the action's
-      # export does nothing. EXPO_TOKEN must be a *repository* secret: an
-      # *environment* secret reads as "" unless the job declares `environment:`.
+      # How eas-cli signs in when nobody can answer a prompt: it reads this
+      # variable itself. It must be a *repository* secret — an *environment*
+      # secret reads as "" unless the job declares `environment:`, and eas then
+      # asks you to log in, in a place where you cannot.
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.11.0
+      # No version here on purpose: the action reads `packageManager` from
+      # package.json, so the pnpm version stays written down in one place.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      # pnpm must already be on the runner, or `cache: pnpm` finds no store.
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

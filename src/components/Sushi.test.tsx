@@ -37,17 +37,27 @@ describe('a word, as sushi', () => {
     expect(fish()).toHaveLength(1);
   });
 
-  /* A long word used to arrive as a roll instead, and a roll drawn flat is a
-     cream box with a dark outline — a button. One kind of sushi now, and the
-     number of pieces is what says how the word comes apart. */
-  it('is one piece per part of the word', () => {
-    render(<Sushi chunks={['drag', 'on']} />);
-    expect(fish()).toHaveLength(2);
+  /* One word is one piece of food, however many parts it comes apart into.
+     `chocolate` used to be served as three of them, which is a plate where
+     there is one word. */
+  it('is one piece however many parts the word comes in', () => {
+    render(<Sushi chunks={['choc', 'o', 'late']} />);
+    expect(fish()).toHaveLength(1);
+  });
+
+  it('marks each seam with a dot', () => {
+    render(<Sushi chunks={['choc', 'o', 'late']} />);
+    expect(screen.getAllByTestId('seam')).toHaveLength(2);
+  });
+
+  it('leaves a word that comes apart nowhere undotted', () => {
+    render(<Sushi chunks={['have']} />);
+    expect(screen.queryAllByTestId('seam')).toHaveLength(0);
   });
 
   it('shows every piece of the word', () => {
     render(<Sushi chunks={['drag', 'on']} />);
-    expect(screen.getByTestId('sushi')).toHaveTextContent('dragon');
+    expect(screen.getByTestId('sushi')).toHaveTextContent('drag·on');
   });
 });
 

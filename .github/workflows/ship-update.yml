@@ -1,0 +1,80 @@
+name: Ship JS Update (OTA)
+
+# Over-the-air JavaScript publish — the `pnpm ship:update` and
+# `pnpm ship:update:prod` tracks. It sends src/ to devices already on the
+# chosen channel. It sends no native code: for that, use ship-ios.yml.
+#
+# An OTA update only reaches a device whose runtime version matches. app.json
+# sets that policy to `appVersion`, so an update published here lands on the
+# builds of the same app.json `version` and no others.
+#
+# Required repository secret:
+#   EXPO_TOKEN — Expo access token (expo.dev → Account → Access tokens)
+#
+# It calls the eas-cli in node_modules, not one installed on the runner, for the
+# reason scripts/ship.sh gives: eas.json refuses a CLI older than the version
+# that works, and only the pinned one is known to be that version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel
+        type: choice
+        default: production
+        options:
+          - production
+          - preview
+      message:
+        description: Update message (optional; defaults to the git commit)
+        type: string
+        required: false
+
+concurrency:
+  group: ship-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      # Read by eas-cli directly, so the publish works even if the action's
+      # export does nothing. EXPO_TOKEN must be a *repository* secret: an
+      # *environment* secret reads as "" unless the job declares `environment:`.
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # What `pnpm check` does, one step at a time so a failure names itself.
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+      # `--auto` takes the message from the last commit and the branch from the
+      # checkout. A message given by hand replaces it.
+      - name: Publish the update
+        run: |
+          if [ -n "${{ inputs.message }}" ]; then
+            ./node_modules/.bin/eas update \
+              --channel "${{ inputs.channel }}" \
+              --platform ios \
+              --non-interactive \
+              --message "${{ inputs.message }}"
+          else
+            ./node_modules/.bin/eas update \
+              --channel "${{ inputs.channel }}" \
+              --platform ios \
+              --non-interactive \
+              --auto
+          fi

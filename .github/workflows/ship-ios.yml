@@ -1,0 +1,85 @@
+name: Ship iOS (App Store)
+
+# Native build plus App Store Connect submission — the `pnpm ship:ios` and
+# `pnpm ship:beta` tracks. Manual only: a native build going to the store
+# should never start by itself.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   EXPO_TOKEN         — Expo access token (expo.dev → Account → Access tokens)
+#   ASC_API_KEY_BASE64 — the App Store Connect .p8 key, base64-encoded:
+#                        base64 -i AuthKey_63597Q5V4W.p8 | pbcopy
+# The key id, issuer id and team id are not secret. They already live in
+# scripts/ship.sh and eas.json.
+#
+# This calls scripts/ship.sh, not `pnpm ship:ios`, so the Apple environment
+# stays in the one place that holds it — but it runs the checks itself, so
+# `pnpm check` is not needed on top. ship.sh runs the eas-cli in node_modules,
+# which is why no step installs one on the runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: EAS build profile
+        type: choice
+        default: production
+        options:
+          - production
+          - beta
+
+concurrency:
+  group: ship-ios
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    env:
+      # Read by eas-cli directly, so the build works even if the action's
+      # export does nothing. EXPO_TOKEN must be a *repository* secret: an
+      # *environment* secret reads as "" unless the job declares `environment:`.
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      # Where the next step writes the key. scripts/ship.sh takes this over its
+      # own default, which points at a home directory no runner has. It sits
+      # outside the checkout, so the copy of the project that goes to the build
+      # server cannot carry the key with it.
+      EXPO_ASC_API_KEY_PATH: ${{ runner.temp }}/asc_api_key.p8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # What `pnpm check` does, one step at a time so a failure names itself.
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+      # eas.json points the submit profile at the key on a development machine.
+      # Write the key from the secret and aim the profile at it for this run
+      # only — the working tree is thrown away when the job ends.
+      - name: Provision the App Store Connect key
+        run: |
+          echo "${{ secrets.ASC_API_KEY_BASE64 }}" | base64 --decode > "$EXPO_ASC_API_KEY_PATH"
+          node -e '
+            const fs = require("fs");
+            const eas = JSON.parse(fs.readFileSync("eas.json", "utf8"));
+            eas.submit.production.ios.ascApiKeyPath = process.env.EXPO_ASC_API_KEY_PATH;
+            fs.writeFileSync("eas.json", JSON.stringify(eas, null, 2) + "\n");
+          '
+
+      - name: Build and submit to the App Store
+        run: |
+          scripts/ship.sh build \
+            --platform ios \
+            --profile "${{ inputs.profile }}" \
+            --non-interactive \
+            --auto-submit-with-profile production

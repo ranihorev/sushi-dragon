@@ -1,0 +1,38 @@
+name: test
+
+# The same three checks `pnpm check` runs before every ship, run on each pull
+# request instead. They are split into separate steps here so a failure names
+# itself: types, lint, or tests. Require this check in branch protection and a
+# red commit cannot reach `main`, which is the only branch the ship workflows
+# build from.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Types first: the cheapest signal, and the one a dependency bump breaks
+      # most often.
+      - run: pnpm typecheck
+
+      - run: pnpm lint
+
+      - run: pnpm test
